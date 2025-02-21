@@ -277,6 +277,7 @@ func (c *Controller) ServeGetSong(r *http.Request) *spec.Response {
 		Preload("Artists").
 		Preload("TrackStar", "user_id=?", user.ID).
 		Preload("TrackRating", "user_id=?", user.ID).
+		Preload("TrackPlays", "user_id=? AND track_id=id", user.ID).
 		First(&track).
 		Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -304,6 +305,7 @@ func (c *Controller) ServeGetRandomSongs(r *http.Request) *spec.Response {
 		Preload("Artists").
 		Preload("TrackStar", "user_id=?", user.ID).
 		Preload("TrackRating", "user_id=?", user.ID).
+		Preload("TrackPlays", "user_id=? AND track_id=id", user.ID).
 		Joins("JOIN albums ON tracks.album_id=albums.id").
 		Order(gorm.Expr("random()"))
 	if year, err := params.GetInt("fromYear"); err == nil {

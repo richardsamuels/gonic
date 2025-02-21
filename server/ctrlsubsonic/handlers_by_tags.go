@@ -192,12 +192,13 @@ func (c *Controller) ServeGetAlbumListTwo(r *http.Request) *spec.Response {
 	// TODO: think about removing this extra join to count number
 	// of children. it might make sense to store that in the db
 	q.
-		Select("albums.*, count(tracks.id) child_count, sum(tracks.length) duration").
+		Select("albums.*, count(tracks.id) child_count, sum(tracks.length) duration, tracks.id as track_id").
 		Joins("LEFT JOIN tracks ON tracks.album_id=albums.id").
 		Group("albums.id").
 		Joins("JOIN album_artists ON album_artists.album_id=albums.id").
 		Offset(params.GetOrInt("offset", 0)).
 		Limit(params.GetOrInt("size", 10)).
+		Preload("Tracks.TrackPlays", "user_id=? AND track_id=track_id", user.ID).
 		Preload("Artists").
 		Preload("AlbumStar", "user_id=?", user.ID).
 		Preload("AlbumRating", "user_id=?", user.ID).
@@ -285,7 +286,8 @@ func (c *Controller) ServeSearchThree(r *http.Request) *spec.Response {
 		Preload("Genres").
 		Preload("Artists").
 		Preload("TrackStar", "user_id=?", user.ID).
-		Preload("TrackRating", "user_id=?", user.ID)
+		Preload("TrackRating", "user_id=?", user.ID).
+		Preload("TrackPlays", "user_id=? AND track_id=id", user.ID)
 	for _, s := range queries {
 		q = q.Where(`tracks.tag_title LIKE ? OR tracks.tag_title_u_dec LIKE ?`, s, s)
 	}
@@ -543,7 +545,8 @@ func (c *Controller) ServeGetStarredTwo(r *http.Request) *spec.Response {
 		Preload("Album.Artists").
 		Preload("Artists").
 		Preload("TrackStar", "user_id=?", user.ID).
-		Preload("TrackRating", "user_id=?", user.ID)
+		Preload("TrackRating", "user_id=?", user.ID).
+		Preload("TrackPlays", "user_id=? AND track_id=id", user.ID)
 	if m := getMusicFolder(c.musicPaths, params); m != "" {
 		q = q.
 			Joins("JOIN albums ON albums.id=tracks.album_id").

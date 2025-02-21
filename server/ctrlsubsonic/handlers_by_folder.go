@@ -96,6 +96,7 @@ func (c *Controller) ServeGetMusicDirectory(r *http.Request) *spec.Response {
 		Preload("Artists").
 		Preload("TrackStar", "user_id=?", user.ID).
 		Preload("TrackRating", "user_id=?", user.ID).
+		Preload("TrackPlays", "user_id=? AND track_id=id", user.ID).
 		Order("tag_track_number").
 		Order("filename").
 		Find(&childTracks)
@@ -177,12 +178,13 @@ func (c *Controller) ServeGetAlbumList(r *http.Request) *spec.Response {
 	// TODO: think about removing this extra join to count number
 	// of children. it might make sense to store that in the db
 	q.
-		Select("albums.*, count(tracks.id) child_count, sum(tracks.length) duration").
+		Select("albums.*, count(tracks.id) child_count, sum(tracks.length) duration, tracks.id as track_id").
 		Joins("LEFT JOIN tracks ON tracks.album_id=albums.id").
 		Group("albums.id").
 		Joins("JOIN album_artists ON album_artists.album_id=albums.id").
 		Offset(params.GetOrInt("offset", 0)).
 		Limit(params.GetOrInt("size", 10)).
+		Preload("Tracks.TrackPlays", "user_id=? AND track_id=track_id", user.ID).
 		Preload("Parent").
 		Preload("AlbumStar", "user_id=?", user.ID).
 		Preload("AlbumRating", "user_id=?", user.ID).
@@ -269,6 +271,7 @@ func (c *Controller) ServeSearchTwo(r *http.Request) *spec.Response {
 		Preload("Artists").
 		Preload("TrackStar", "user_id=?", user.ID).
 		Preload("TrackRating", "user_id=?", user.ID).
+		Preload("TrackPlays", "user_id=? AND track_id=id", user.ID).
 		Offset(params.GetOrInt("songOffset", 0)).
 		Limit(params.GetOrInt("songCount", 20))
 	if m := getMusicFolder(c.musicPaths, params); m != "" {
@@ -352,7 +355,8 @@ func (c *Controller) ServeGetStarred(r *http.Request) *spec.Response {
 		Where("track_stars.user_id=?", user.ID).
 		Preload("Artists").
 		Preload("TrackStar", "user_id=?", user.ID).
-		Preload("TrackRating", "user_id=?", user.ID)
+		Preload("TrackRating", "user_id=?", user.ID).
+		Preload("TrackPlays", "user_id=? AND track_id=id", user.ID)
 	if m := getMusicFolder(c.musicPaths, params); m != "" {
 		q = q.
 			Joins("JOIN albums ON albums.id=tracks.album_id").
