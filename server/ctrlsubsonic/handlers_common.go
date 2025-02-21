@@ -82,8 +82,11 @@ func (c *Controller) ServeScrobble(r *http.Request) *spec.Response {
 			scrobbleTrack.MusicBrainzReleaseID = track.Album.TagBrainzID
 		}
 
-		if err := scrobbleStatsUpdateTrack(c.dbc, &track, user.ID, optStamp); err != nil {
+		if err := scrobbleStatsUpdateAlbum(c.dbc, &track, user.ID, optStamp); err != nil {
 			return spec.NewError(0, "error updating stats: %v", err)
+		}
+		if err := updatePlayCount(c.dbc, &track, user.ID); err != nil {
+			return spec.NewError(0, "error updating track stats: %v", err)
 		}
 
 	case specid.PodcastEpisode:
@@ -476,7 +479,23 @@ func (c *Controller) ServeGetLyrics(_ *http.Request) *spec.Response {
 	return sub
 }
 
-func scrobbleStatsUpdateTrack(dbc *db.DB, track *db.Track, userID int, playTime time.Time) error {
+func updatePlayCount(dbc *db.DB, track *db.Track, userID int) error {
+	var play db.TrackPlays
+	if err := dbc.Where("track_id=? AND user_id=?", track.ID, userID).First(&play).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return fmt.Errorf("find stat: %w", err)
+	}
+
+	play.TrackID = track.ID
+	play.UserID = userID
+	play.Count++ // for getAlbumList?type=frequent
+
+	if err := dbc.Save(&play).Error; err != nil {
+		return fmt.Errorf("save stat: %w", err)
+	}
+	return nil
+}
+
+func scrobbleStatsUpdateAlbum(dbc *db.DB, track *db.Track, userID int, playTime time.Time) error {
 	var play db.Play
 	if err := dbc.Where("album_id=? AND user_id=?", track.AlbumID, userID).First(&play).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return fmt.Errorf("find stat: %w", err)
