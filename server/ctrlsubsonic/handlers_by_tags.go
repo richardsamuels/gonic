@@ -113,7 +113,8 @@ func (c *Controller) ServeGetAlbum(r *http.Request) *spec.Response {
 				Order("tracks.tag_disc_number, tracks.tag_track_number").
 				Preload("Artists").
 				Preload("TrackStar", "user_id=?", user.ID).
-				Preload("TrackRating", "user_id=?", user.ID)
+				Preload("TrackRating", "user_id=?", user.ID).
+				Preload("TrackPlay", "user_id=?", user.ID)
 		}).
 		Preload("AlbumStar", "user_id=?", user.ID).
 		Preload("AlbumRating", "user_id=?", user.ID).
@@ -202,6 +203,7 @@ func (c *Controller) ServeGetAlbumListTwo(r *http.Request) *spec.Response {
 		Preload("AlbumStar", "user_id=?", user.ID).
 		Preload("AlbumRating", "user_id=?", user.ID).
 		Preload("Play", "user_id=?", user.ID).
+		Preload("Tracks.TrackPlay", "user_id=?", user.ID).
 		Find(&albums)
 	sub := spec.NewResponse()
 	sub.AlbumsTwo = &spec.Albums{
@@ -285,7 +287,8 @@ func (c *Controller) ServeSearchThree(r *http.Request) *spec.Response {
 		Preload("Genres").
 		Preload("Artists").
 		Preload("TrackStar", "user_id=?", user.ID).
-		Preload("TrackRating", "user_id=?", user.ID)
+		Preload("TrackRating", "user_id=?", user.ID).
+		Preload("TrackPlay", "user_id=?", user.ID)
 	for _, s := range queries {
 		q = q.Where(`tracks.tag_title LIKE ? OR tracks.tag_title_u_dec LIKE ?`, s, s)
 	}
@@ -543,7 +546,8 @@ func (c *Controller) ServeGetStarredTwo(r *http.Request) *spec.Response {
 		Preload("Album.Artists").
 		Preload("Artists").
 		Preload("TrackStar", "user_id=?", user.ID).
-		Preload("TrackRating", "user_id=?", user.ID)
+		Preload("TrackRating", "user_id=?", user.ID).
+		Preload("TrackPlay", "user_id=?", user.ID)
 	if m := getMusicFolder(c.musicPaths, params); m != "" {
 		q = q.
 			Joins("JOIN albums ON albums.id=tracks.album_id").
@@ -617,6 +621,7 @@ func (c *Controller) ServeGetTopSongs(r *http.Request) *spec.Response {
 		Preload("Artists").
 		Preload("TrackStar", "user_id=?", user.ID).
 		Preload("TrackRating", "user_id=?", user.ID).
+		Preload("TrackPlay", "user_id=?", user.ID).
 		Group("tracks.id").
 		Limit(count).
 		Find(&tracks).

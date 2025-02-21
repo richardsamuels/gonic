@@ -96,6 +96,7 @@ func (c *Controller) ServeGetMusicDirectory(r *http.Request) *spec.Response {
 		Preload("Artists").
 		Preload("TrackStar", "user_id=?", user.ID).
 		Preload("TrackRating", "user_id=?", user.ID).
+		Preload("TrackPlay", "user_id=?", user.ID).
 		Order("tag_track_number").
 		Order("filename").
 		Find(&childTracks)
@@ -186,6 +187,7 @@ func (c *Controller) ServeGetAlbumList(r *http.Request) *spec.Response {
 		Preload("Parent").
 		Preload("AlbumStar", "user_id=?", user.ID).
 		Preload("AlbumRating", "user_id=?", user.ID).
+		Preload("Tracks.TrackPlay", "user_id=?", user.ID).
 		Find(&folders)
 	sub := spec.NewResponse()
 	sub.Albums = &spec.Albums{
@@ -269,6 +271,7 @@ func (c *Controller) ServeSearchTwo(r *http.Request) *spec.Response {
 		Preload("Artists").
 		Preload("TrackStar", "user_id=?", user.ID).
 		Preload("TrackRating", "user_id=?", user.ID).
+		Preload("TrackPlay", "user_id=?", user.ID).
 		Offset(params.GetOrInt("songOffset", 0)).
 		Limit(params.GetOrInt("songCount", 20))
 	if m := getMusicFolder(c.musicPaths, params); m != "" {
@@ -352,6 +355,7 @@ func (c *Controller) ServeGetStarred(r *http.Request) *spec.Response {
 		Where("track_stars.user_id=?", user.ID).
 		Preload("Artists").
 		Preload("TrackStar", "user_id=?", user.ID).
+		Preload("TrackPlay", "user_id=?", user.ID).
 		Preload("TrackRating", "user_id=?", user.ID)
 	if m := getMusicFolder(c.musicPaths, params); m != "" {
 		q = q.

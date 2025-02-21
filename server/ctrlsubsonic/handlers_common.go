@@ -82,8 +82,11 @@ func (c *Controller) ServeScrobble(r *http.Request) *spec.Response {
 			scrobbleTrack.MusicBrainzReleaseID = track.Album.TagBrainzID
 		}
 
-		if err := scrobbleStatsUpdateTrack(c.dbc, &track, user.ID, optStamp); err != nil {
-			return spec.NewError(0, "error updating stats: %v", err)
+		if err := scrobbleStatsUpdateAlbum(c.dbc, &track, user.ID, optStamp); err != nil {
+			return spec.NewError(0, "error updating album stats: %v", err)
+		}
+		if err := scrobbleStatsUpdateTrack(c.dbc, &track, user.ID); err != nil {
+			return spec.NewError(0, "error updating track stats: %v", err)
 		}
 
 	case specid.PodcastEpisode:
@@ -277,6 +280,7 @@ func (c *Controller) ServeGetSong(r *http.Request) *spec.Response {
 		Preload("Artists").
 		Preload("TrackStar", "user_id=?", user.ID).
 		Preload("TrackRating", "user_id=?", user.ID).
+		Preload("TrackPlay", "user_id=?", user.ID).
 		First(&track).
 		Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -304,6 +308,7 @@ func (c *Controller) ServeGetRandomSongs(r *http.Request) *spec.Response {
 		Preload("Artists").
 		Preload("TrackStar", "user_id=?", user.ID).
 		Preload("TrackRating", "user_id=?", user.ID).
+		Preload("TrackPlay", "user_id=?", user.ID).
 		Joins("JOIN albums ON tracks.album_id=albums.id").
 		Order(gorm.Expr("random()"))
 	if year, err := params.GetInt("fromYear"); err == nil {
@@ -474,7 +479,47 @@ func (c *Controller) ServeGetLyrics(_ *http.Request) *spec.Response {
 	return sub
 }
 
-func scrobbleStatsUpdateTrack(dbc *db.DB, track *db.Track, userID int, playTime time.Time) error {
+func scrobbleStatsUpdateTrack(_dbc *db.DB, track *db.Track, userID int) error {
+	return _dbc.Transaction(func(tx *db.DB) error {
+		play := db.TrackPlay{}
+		err := tx.
+			Where("user_id = ?", userID).
+			Where("track_id = ?", track.ID).
+			Find(&play).Error
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return fmt.Errorf("update track stat: %w", err)
+		}
+
+		// Some clients behave poorly and send multiple scrobbles in quick
+		// succession leading to overinflated play counts.
+		// Last.fm appears to deduplicate in this scenario so let's copy their rules:
+		// A track must be listened to for 50% of its duration or 4 minutes,
+		// whichever comes first.
+		if err == nil {
+			dontScrobbleBeforeSecs := track.Length / 2
+			if dontScrobbleBeforeSecs >= 60*4 {
+				dontScrobbleBeforeSecs = 60 * 4
+			}
+			dontScrobbleBefore := play.UpdatedAt
+			dontScrobbleBefore = dontScrobbleBefore.Add(time.Duration(dontScrobbleBeforeSecs) * time.Second)
+			if !time.Now().After(dontScrobbleBefore) {
+				return nil
+			}
+		}
+
+		play.UserID = userID
+		play.Count++
+		play.TrackID = track.ID
+
+		if err := tx.Save(&play).Error; err != nil {
+			return fmt.Errorf("update track stat: %w", err)
+		}
+		return nil
+
+	})
+}
+
+func scrobbleStatsUpdateAlbum(dbc *db.DB, track *db.Track, userID int, playTime time.Time) error {
 	var play db.Play
 	if err := dbc.Where("album_id=? AND user_id=?", track.AlbumID, userID).First(&play).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return fmt.Errorf("find stat: %w", err)

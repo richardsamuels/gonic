@@ -70,6 +70,28 @@ func newMockFS(tb testing.TB, dirs []string, excludePattern string) *MockFS {
 	tagReader := &tagReader{paths: map[string]*TagInfo{}}
 	scanner := scanner.New(absDirs, dbc, multiValueSettings, tagReader, excludePattern)
 
+	users := []*db.User{}
+	if err := dbc.Find(&users).Error; err != nil {
+		tb.Fatalf("find users: %v", err)
+	}
+
+	tracks := []*db.Track{}
+	if err := dbc.Order("id DESC").Find(&tracks).Error; err != nil {
+		tb.Fatalf("find tracks: %v", err)
+	}
+	for i, track := range tracks {
+		for _, user := range users {
+			temp := &db.TrackPlay{}
+			temp.UserID = user.ID
+			temp.TrackID = track.ID
+			temp.Count = (i + 1) * 10
+
+			if err := dbc.Save(temp); err != nil {
+				tb.Fatalf("save track play: %v", err)
+			}
+		}
+	}
+
 	return &MockFS{
 		t:         tb,
 		scanner:   scanner,
