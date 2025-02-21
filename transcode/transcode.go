@@ -48,6 +48,9 @@ var (
 	Opus192 = NewProfile("audio/ogg", "opus", 192, `ffmpeg -v 0 -i <file> -ss <seek> -map 0:a:0 -vn -b:a <bitrate> -c:a libopus -vbr on -f opus -`)
 
 	PCM16le = NewProfile("audio/wav", "wav", 0, `ffmpeg -v 0 -i <file> -ss <seek> -c:a pcm_s16le -ac 2 -ar 48000 -f s16le -`)
+
+	// Seek into the file without actually transcoding
+	seek = NewProfile("", "", 0, `ffmpeg -v 0 -i <file> -ss <seek> -acodec copy -`)
 )
 
 type BitRate uint // kilobits/s

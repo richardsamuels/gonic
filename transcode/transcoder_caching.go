@@ -16,27 +16,23 @@ import (
 const perm = 0o644
 
 type CachingTranscoder struct {
-	cachePath  string
-	transcoder Transcoder
-	limitMB    int
-	locks      keyedMutex
-	cleanLock  sync.RWMutex
+	cachePath      string
+	transcoder     Transcoder
+	seekTranscoder SeekTranscoder
+	limitMB        int
+	locks          keyedMutex
+	cleanLock      sync.RWMutex
 }
 
 var _ Transcoder = (*CachingTranscoder)(nil)
 
 func NewCachingTranscoder(t Transcoder, cachePath string, limitMB int) *CachingTranscoder {
-	return &CachingTranscoder{transcoder: t, cachePath: cachePath, limitMB: limitMB}
+	return &CachingTranscoder{transcoder: t, cachePath: cachePath, limitMB: limitMB, seekTranscoder: NewSeekTranscoder()}
 }
 
 func (t *CachingTranscoder) Transcode(ctx context.Context, profile Profile, in string, out io.Writer) error {
 	t.cleanLock.RLock()
 	defer t.cleanLock.RUnlock()
-
-	// don't try cache partial transcodes
-	if profile.Seek() > 0 {
-		return t.transcoder.Transcode(ctx, profile, in, out)
-	}
 
 	if err := os.MkdirAll(t.cachePath, perm^0o111); err != nil {
 		return fmt.Errorf("make cache path: %w", err)
@@ -52,23 +48,49 @@ func (t *CachingTranscoder) Transcode(ctx context.Context, profile Profile, in s
 	defer unlock()
 
 	path := filepath.Join(t.cachePath, key)
-	cf, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o644)
+
+	cf, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, perm)
 	if err != nil {
 		return fmt.Errorf("open cache file: %w", err)
 	}
 	defer cf.Close()
 
-	if i, err := cf.Stat(); err == nil && i.Size() > 0 {
-		_, _ = io.Copy(out, cf)
+	i, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("stat cache file: %w", err)
+	}
+	if i.Size() > 0 {
 		_ = os.Chtimes(path, time.Now(), time.Now()) // Touch for LRU cache purposes
-		return nil
+		if profile.Seek() > 0 {
+			// it's already been transcoded, so just seek into it
+			return t.seekTranscoder.Transcode(ctx, profile, in, out)
+		} else {
+			// if the seek is zero, just copy the whole file
+			_, _ = io.Copy(out, cf)
+			return nil
+		}
 	}
 
-	dest := io.MultiWriter(out, cf)
-	if err := t.transcoder.Transcode(ctx, profile, in, dest); err != nil {
+	zeroProfile := profile
+	var fileOut io.Writer = cf
+	if profile.Seek() == 0 {
+		// If seek is zero, transcode to disc and copy out to socket at same time
+		fileOut = io.MultiWriter(out, cf)
+	} else {
+		// If its non-zero, we force the profile to seek from 0 for
+		// caching purposes...
+		zeroProfile = WithSeek(profile, 0)
+	}
+
+	if err := t.transcoder.Transcode(ctx, zeroProfile, in, fileOut); err != nil {
 		os.Remove(path)
 		return fmt.Errorf("internal transcode: %w", err)
 	}
+
+	// ...and then we finally send the seeked data
+	if profile.Seek() != 0 {
+		return t.seekTranscoder.Transcode(ctx, profile, in, out)
+	} // (if the seek is zero, the MultiWriter will have taken care of it)
 
 	return nil
 }
