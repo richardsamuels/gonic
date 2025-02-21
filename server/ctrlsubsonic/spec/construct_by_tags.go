@@ -85,6 +85,9 @@ func NewTrackByTags(t *db.Track, album *db.Album) *TrackChild {
 		AverageRating:      formatRating(t.AverageRating),
 		TranscodeMeta:      TranscodeMeta{},
 	}
+	if t.TrackPlays != nil {
+		ret.PlayCount = t.TrackPlays.Count
+	}
 	if album.Cover != "" {
 		ret.CoverID = album.SID()
 	}
