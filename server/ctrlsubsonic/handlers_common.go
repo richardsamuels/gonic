@@ -83,9 +83,9 @@ func (c *Controller) ServeScrobble(r *http.Request) *spec.Response {
 		}
 
 		if err := scrobbleStatsUpdateAlbum(c.dbc, &track, user.ID, optStamp); err != nil {
-			return spec.NewError(0, "error updating stats: %v", err)
+			return spec.NewError(0, "error updating album stats: %v", err)
 		}
-		if err := updatePlayCount(c.dbc, &track, user.ID); err != nil {
+		if err := scrobbleStatsUpdateTrack(c.dbc, &track, user.ID); err != nil {
 			return spec.NewError(0, "error updating track stats: %v", err)
 		}
 
@@ -479,7 +479,7 @@ func (c *Controller) ServeGetLyrics(_ *http.Request) *spec.Response {
 	return sub
 }
 
-func updatePlayCount(dbc *db.DB, track *db.Track, userID int) error {
+func scrobbleStatsUpdateTrack(dbc *db.DB, track *db.Track, userID int) error {
 	var play db.TrackPlays
 	if err := dbc.Where("track_id=? AND user_id=?", track.ID, userID).First(&play).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return fmt.Errorf("find stat: %w", err)
@@ -487,7 +487,7 @@ func updatePlayCount(dbc *db.DB, track *db.Track, userID int) error {
 
 	play.TrackID = track.ID
 	play.UserID = userID
-	play.Count++ // for getAlbumList?type=frequent
+	play.Count++
 
 	if err := dbc.Save(&play).Error; err != nil {
 		return fmt.Errorf("save stat: %w", err)
