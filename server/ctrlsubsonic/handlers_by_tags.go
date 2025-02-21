@@ -104,7 +104,7 @@ func (c *Controller) ServeGetAlbum(r *http.Request) *spec.Response {
 	}
 	album := &db.Album{}
 	err = c.dbc.
-		Select("albums.*, count(tracks.id) child_count, sum(tracks.length) duration").
+		Select("albums.*, count(tracks.id) child_count, sum(tracks.length) duration, tracks.id as track_id").
 		Joins("LEFT JOIN tracks ON tracks.album_id=albums.id").
 		Preload("Artists").
 		Preload("Genres").
@@ -115,6 +115,7 @@ func (c *Controller) ServeGetAlbum(r *http.Request) *spec.Response {
 				Preload("TrackStar", "user_id=?", user.ID).
 				Preload("TrackRating", "user_id=?", user.ID)
 		}).
+		Preload("Tracks.TrackPlays", "user_id=? AND track_id=track_id", user.ID).
 		Preload("AlbumStar", "user_id=?", user.ID).
 		Preload("AlbumRating", "user_id=?", user.ID).
 		Preload("AlbumRating", "user_id=?", user.ID).
