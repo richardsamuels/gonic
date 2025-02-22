@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -59,6 +60,7 @@ func (t *CachingTranscoder) Transcode(ctx context.Context, profile Profile, in s
 		return fmt.Errorf("stat cache file: %w", err)
 	}
 	if i.Size() == 0 {
+		log.Printf("cache miss: %s", path)
 		zeroProfile := profile
 		var fileOut io.Writer = cf
 		if profile.Seek() == 0 {
@@ -86,6 +88,8 @@ func (t *CachingTranscoder) Transcode(ctx context.Context, profile Profile, in s
 		if err != nil {
 			return fmt.Errorf("stat cache file: %w", err)
 		}
+	} else {
+		log.Printf("cache hit: %s", path)
 	}
 
 	// If the file size is non-zero, it's already cached
