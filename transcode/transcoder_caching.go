@@ -62,17 +62,13 @@ func (t *CachingTranscoder) Transcode(ctx context.Context, profile Profile, in s
 	if i.Size() == 0 {
 		log.Printf("cache miss: %s", path)
 		zeroProfile := profile
-		var fileOut io.Writer = cf
-		if profile.Seek() == 0 {
-			// If seek is zero, transcode to disc and copy out to socket at same time
-			fileOut = io.MultiWriter(out, cf)
-		} else {
+		if profile.Seek() != 0 {
 			// If its non-zero, we force the profile to seek from 0 for
 			// caching purposes...
 			zeroProfile = WithSeek(profile, 0)
 		}
 
-		if err := t.transcoder.Transcode(ctx, zeroProfile, in, fileOut); err != nil {
+		if err := t.transcoder.Transcode(ctx, zeroProfile, in, cf); err != nil {
 			os.Remove(path)
 			return fmt.Errorf("internal transcode: %w", err)
 		}
@@ -82,6 +78,10 @@ func (t *CachingTranscoder) Transcode(ctx context.Context, profile Profile, in s
 		}
 		if err := cf.Sync(); err != nil {
 			return fmt.Errorf("failed to fsync: %v", err)
+		}
+
+		if _, err = cf.Seek(0, 0); err != nil {
+			return fmt.Errorf("failed to seek: %v", err)
 		}
 
 		i, err = os.Stat(path)
