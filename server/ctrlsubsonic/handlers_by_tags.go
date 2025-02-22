@@ -104,7 +104,7 @@ func (c *Controller) ServeGetAlbum(r *http.Request) *spec.Response {
 	}
 	album := &db.Album{}
 	err = c.dbc.
-		Select("albums.*, count(tracks.id) child_count, sum(tracks.length) duration, tracks.id as track_id").
+		Select("albums.*, count(tracks.id) child_count, sum(tracks.length) duration, tracks.id as track_id, tracks.tag_brainz_id as tag_brainz_id").
 		Joins("LEFT JOIN tracks ON tracks.album_id=albums.id").
 		Preload("Artists").
 		Preload("Genres").
@@ -115,7 +115,6 @@ func (c *Controller) ServeGetAlbum(r *http.Request) *spec.Response {
 				Preload("TrackStar", "user_id=?", user.ID).
 				Preload("TrackRating", "user_id=?", user.ID)
 		}).
-		Preload("Tracks.TrackPlays", "user_id=? AND track_id=track_id", user.ID).
 		Preload("AlbumStar", "user_id=?", user.ID).
 		Preload("AlbumRating", "user_id=?", user.ID).
 		Preload("AlbumRating", "user_id=?", user.ID).
@@ -125,6 +124,30 @@ func (c *Controller) ServeGetAlbum(r *http.Request) *spec.Response {
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return spec.NewError(70, "couldn't find an album with that id")
 	}
+
+	for _, t := range album.Tracks {
+		p := &db.TrackPlay{}
+		if len(t.TagBrainzID) != 0 {
+			err := c.dbc.Select("track_plays").Where("music_brainz_id = ?", t.TagBrainzID).Find(p).Error
+			if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+				return spec.NewError(0, "error fetching track play info (via Musicbrainz ID)")
+			}
+			if err == nil {
+				t.TrackPlay = p
+			}
+		}
+		if t.TrackPlay == nil {
+			err := c.dbc.Select("track_plays").Where("track_id = ?", t.ID).Find(p).Error
+			if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+				return spec.NewError(0, "error fetching track play info (via ID)")
+			}
+			if err == nil {
+				t.TrackPlay = p
+			}
+
+		}
+	}
+
 	sub := spec.NewResponse()
 	sub.Album = spec.NewAlbumByTags(album, album.Artists)
 	sub.Album.Tracks = make([]*spec.TrackChild, len(album.Tracks))
@@ -193,13 +216,12 @@ func (c *Controller) ServeGetAlbumListTwo(r *http.Request) *spec.Response {
 	// TODO: think about removing this extra join to count number
 	// of children. it might make sense to store that in the db
 	q.
-		Select("albums.*, count(tracks.id) child_count, sum(tracks.length) duration, tracks.id as track_id").
+		Select("albums.*, count(tracks.id) child_count, sum(tracks.length) duration").
 		Joins("LEFT JOIN tracks ON tracks.album_id=albums.id").
 		Group("albums.id").
 		Joins("JOIN album_artists ON album_artists.album_id=albums.id").
 		Offset(params.GetOrInt("offset", 0)).
 		Limit(params.GetOrInt("size", 10)).
-		Preload("Tracks.TrackPlays", "user_id=? AND track_id=track_id", user.ID).
 		Preload("Artists").
 		Preload("AlbumStar", "user_id=?", user.ID).
 		Preload("AlbumRating", "user_id=?", user.ID).
@@ -288,7 +310,9 @@ func (c *Controller) ServeSearchThree(r *http.Request) *spec.Response {
 		Preload("Artists").
 		Preload("TrackStar", "user_id=?", user.ID).
 		Preload("TrackRating", "user_id=?", user.ID).
-		Preload("TrackPlays", "user_id=? AND track_id=id", user.ID)
+		Preload("TrackPlay", func(db *gorm.DB) *gorm.DB {
+			return db.Select("tag_brainz_id").Joins("LEFT JOIN tracks ON tracks.id = track_plays.track_id").Where("user_id =? AND (music_brainz_id=tracks.tag_brainz_id OR track_id=tracks.id)", user.ID)
+		})
 	for _, s := range queries {
 		q = q.Where(`tracks.tag_title LIKE ? OR tracks.tag_title_u_dec LIKE ?`, s, s)
 	}
@@ -299,7 +323,7 @@ func (c *Controller) ServeSearchThree(r *http.Request) *spec.Response {
 			Joins("JOIN albums ON albums.id=tracks.album_id").
 			Where("albums.root_dir=?", m)
 	}
-	if err := q.Find(&tracks).Error; err != nil {
+	if err := q.Debug().Find(&tracks).Error; err != nil {
 		return spec.NewError(0, "find tracks: %v", err)
 	}
 
@@ -547,7 +571,7 @@ func (c *Controller) ServeGetStarredTwo(r *http.Request) *spec.Response {
 		Preload("Artists").
 		Preload("TrackStar", "user_id=?", user.ID).
 		Preload("TrackRating", "user_id=?", user.ID).
-		Preload("TrackPlays", "user_id=? AND track_id=id", user.ID)
+		Preload("TrackPlay", "user_id=? AND (track_id=track_id OR music_brainz_id=tag_brainz_id)", user.ID)
 	if m := getMusicFolder(c.musicPaths, params); m != "" {
 		q = q.
 			Joins("JOIN albums ON albums.id=tracks.album_id").

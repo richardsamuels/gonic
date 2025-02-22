@@ -280,7 +280,7 @@ func (c *Controller) ServeGetSong(r *http.Request) *spec.Response {
 		Preload("Artists").
 		Preload("TrackStar", "user_id=?", user.ID).
 		Preload("TrackRating", "user_id=?", user.ID).
-		Preload("TrackPlays", "user_id=? AND track_id=id", user.ID).
+		Preload("TrackPlay", "user_id=? AND (track_id=track_id OR music_brainz_id=tag_brainz_id)", user.ID).
 		First(&track).
 		Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -308,7 +308,9 @@ func (c *Controller) ServeGetRandomSongs(r *http.Request) *spec.Response {
 		Preload("Artists").
 		Preload("TrackStar", "user_id=?", user.ID).
 		Preload("TrackRating", "user_id=?", user.ID).
-		Preload("TrackPlays", "user_id=? AND track_id=id", user.ID).
+		Preload("TrackPlay", func(db *gorm.DB) *gorm.DB {
+			return db.Select("tag_brainz_id").Joins("LEFT JOIN tracks ON tracks.id = track_plays.track_id").Where("user_id =? AND (music_brainz_id=tracks.tag_brainz_id OR track_id=tracks.id)", user.ID)
+		}).
 		Joins("JOIN albums ON tracks.album_id=albums.id").
 		Order(gorm.Expr("random()"))
 	if year, err := params.GetInt("fromYear"); err == nil {
@@ -480,16 +482,57 @@ func (c *Controller) ServeGetLyrics(_ *http.Request) *spec.Response {
 }
 
 func scrobbleStatsUpdateTrack(dbc *db.DB, track *db.Track, userID int) error {
-	var play db.TrackPlays
-	if err := dbc.Where("track_id=? AND user_id=?", track.ID, userID).First(&play).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+	// TODO do i need this?
+	tbi := &track.TagBrainzID
+	if len(track.TagBrainzID) == 0 {
+		tbi = nil
+	}
+
+	// find all TrackPlay that match track_id or music_brainz_id
+	var plays []*db.TrackPlay
+	if err := dbc.Where("(track_id=? OR music_brainz_id=?) AND user_id=?", track.ID, tbi, userID).Find(&plays).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return fmt.Errorf("find stat: %w", err)
 	}
 
-	play.TrackID = track.ID
-	play.UserID = userID
-	play.Count++
+	s := 0
+	// if we have a music brainz id, delete all TrackPlay that use
+	// track_id while summing up their counts
+	foundMusicBrainz := len(track.TagBrainzID) != 0
+	target := &db.TrackPlay{}
+	for _, p := range plays {
+		if p.MusicBrainzID == nil {
+			s += p.Count
+		} else {
+			target = p
+			foundMusicBrainz = true
+		}
+	}
+	if foundMusicBrainz {
+		if err := dbc.Transaction(func(tx *db.DB) error {
+			for _, p := range plays {
+				if p.MusicBrainzID == nil {
+					if err := tx.Delete(p).Error; err != nil {
+						return fmt.Errorf("delete old stats: %w", err)
+					}
+				}
+			}
+			return nil
+		}); err != nil {
+			return fmt.Errorf("delete old stats: %w", err)
+		}
+	}
+	target.Count += s + 1
+	if len(track.TagBrainzID) == 0 {
+		target.TrackID = &track.ID
+		target.MusicBrainzID = nil
+	} else {
+		target.MusicBrainzID = &track.TagBrainzID
+		target.TrackID = nil
+	}
+	target.UserID = userID
+	fmt.Printf("%+v\n", target)
 
-	if err := dbc.Save(&play).Error; err != nil {
+	if err := dbc.Save(&target).Error; err != nil {
 		return fmt.Errorf("save stat: %w", err)
 	}
 	return nil

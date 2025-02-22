@@ -244,7 +244,7 @@ type Track struct {
 	TrackStar     *TrackStar
 	TrackRating   *TrackRating
 	AverageRating float64 `sql:"default: null"`
-	TrackPlays    *TrackPlays
+	TrackPlay     *TrackPlay
 }
 
 func (t *Track) AudioLength() int  { return t.Length }
@@ -293,13 +293,16 @@ func (t *Track) RelPath() string {
 	)
 }
 
-type TrackPlays struct {
+type TrackPlay struct {
 	ID        int `gorm:"primary_key"`
 	CreatedAt time.Time
 	UpdatedAt time.Time
 	UserID    int `gorm:"not null;" sql:"default: null; type:int REFERENCES users(id) ON DELETE CASCADE"`
-	TrackID   int `gorm:"not null;" sql:"default: null; type:int REFERENCES tracks(id) ON DELETE CASCADE"`
 	Count     int `gorm:"not null;" sql:"default: 0; type: int"`
+
+	// Mutually exclusive
+	TrackID       *int    `gorm:"null; check:((track_id IS NOT NULL AND music_brainz_id IS NULL) OR (track_id IS NULL AND music_brainz_id IS NOT NULL))" sql:"default: null; type:int REFERENCES tracks(id) ON DELETE CASCADE"`
+	MusicBrainzID *string `gorm:"null; check:(length(music_brain_id) > 0)" sql:"default: null;"`
 }
 
 type User struct {

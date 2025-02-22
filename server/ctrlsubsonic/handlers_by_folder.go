@@ -96,7 +96,7 @@ func (c *Controller) ServeGetMusicDirectory(r *http.Request) *spec.Response {
 		Preload("Artists").
 		Preload("TrackStar", "user_id=?", user.ID).
 		Preload("TrackRating", "user_id=?", user.ID).
-		Preload("TrackPlays", "user_id=? AND track_id=id", user.ID).
+		Preload("TrackPlay", "user_id=? AND (track_id=track_id OR music_brainz_id=tag_brainz_id)", user.ID).
 		Order("tag_track_number").
 		Order("filename").
 		Find(&childTracks)
@@ -184,7 +184,7 @@ func (c *Controller) ServeGetAlbumList(r *http.Request) *spec.Response {
 		Joins("JOIN album_artists ON album_artists.album_id=albums.id").
 		Offset(params.GetOrInt("offset", 0)).
 		Limit(params.GetOrInt("size", 10)).
-		Preload("Tracks.TrackPlays", "user_id=? AND track_id=track_id", user.ID).
+		Preload("Tracks.TrackPlay", "user_id=? AND (track_id=track_id OR music_brainz_id=tracks.tag_brainz_id)", user.ID).
 		Preload("Parent").
 		Preload("AlbumStar", "user_id=?", user.ID).
 		Preload("AlbumRating", "user_id=?", user.ID).
@@ -271,7 +271,10 @@ func (c *Controller) ServeSearchTwo(r *http.Request) *spec.Response {
 		Preload("Artists").
 		Preload("TrackStar", "user_id=?", user.ID).
 		Preload("TrackRating", "user_id=?", user.ID).
-		Preload("TrackPlays", "user_id=? AND track_id=id", user.ID).
+		Preload("TrackPlay", func(db *gorm.DB) *gorm.DB {
+			return db.Select("tag_brainz_id").Joins("LEFT JOIN tracks ON tracks.id = track_plays.track_id").Where("user_id =? AND (music_brainz_id=tracks.tag_brainz_id OR track_id=tracks.id)", user.ID)
+		}).
+		//"user_id=? AND (track_id=track_id OR music_brainz_id=tag_brainz_id)", user.ID).
 		Offset(params.GetOrInt("songOffset", 0)).
 		Limit(params.GetOrInt("songCount", 20))
 	if m := getMusicFolder(c.musicPaths, params); m != "" {
@@ -356,7 +359,7 @@ func (c *Controller) ServeGetStarred(r *http.Request) *spec.Response {
 		Preload("Artists").
 		Preload("TrackStar", "user_id=?", user.ID).
 		Preload("TrackRating", "user_id=?", user.ID).
-		Preload("TrackPlays", "user_id=? AND track_id=id", user.ID)
+		Preload("TrackPlay", "user_id=? AND (track_id=track_id OR music_brainz_id=tag_brainz_id)", user.ID)
 	if m := getMusicFolder(c.musicPaths, params); m != "" {
 		q = q.
 			Joins("JOIN albums ON albums.id=tracks.album_id").
