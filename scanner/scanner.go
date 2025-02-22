@@ -323,8 +323,13 @@ func (s *Scanner) populateTrackAndArtists(tx *db.DB, st *State, i int, album *db
 	}
 
 	var track db.Track
-	if err := tx.Where("album_id=? AND filename=?", album.ID, filepath.Base(basename)).First(&track).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+	err = tx.Where("album_id=? AND filename=?", album.ID, filepath.Base(basename)).First(&track).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return fmt.Errorf("query track: %w", err)
+	}
+	var oldBrainzId *string = nil
+	if err == nil { // track already existed, updating it
+		oldBrainzId = &track.TagBrainzID
 	}
 
 	if !st.isFull && track.ID != 0 && timeSpec.ModTime().Before(track.UpdatedAt) {
@@ -388,6 +393,16 @@ func (s *Scanner) populateTrackAndArtists(tx *db.DB, st *State, i int, album *db
 	}
 	if err := populateTrackGenres(tx, &track, genreIDs); err != nil {
 		return fmt.Errorf("populate track genres: %w", err)
+	}
+	// if track was updated and has a new music brainz id
+	// if a track has its brainz id changed or removd, we can't
+	// do much in that case, so we only support no id -> have id case
+	if oldBrainzId != nil && len(*oldBrainzId) == 0 && len(track.TagBrainzID) > 0 {
+		if err := tx.Model(db.TrackPlay{}).Where("track_id=?", track.ID).Updates(
+			map[string]interface{}{"track_id": nil, "music_brainz_id": &track.TagBrainzID},
+		).Error; err != nil {
+			return fmt.Errorf("update track plays: %w", err)
+		}
 	}
 
 	trackArtistNames := ParseMulti(s.multiValueSettings[Artist], tagcommon.MustArtists(trags), tagcommon.MustArtist(trags))

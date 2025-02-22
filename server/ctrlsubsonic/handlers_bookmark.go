@@ -47,8 +47,8 @@ func (c *Controller) ServeGetBookmarks(r *http.Request) *spec.Response {
 			if err != nil {
 				return spec.NewError(10, "finding entry: %v", err)
 			}
-			if err := c.sumTrackPlays(user.ID, &track); err != nil {
-				return spec.NewError(0, "fetching track play info: %v", err)
+			if err := c.populateTrackPlays(&track, user.ID); err != nil {
+				return spec.NewError(0, "Error fetching track plays info: %v", err)
 			}
 			respBookmark.Entry = spec.NewTrackByTags(&track, track.Album)
 		}
