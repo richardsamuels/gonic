@@ -480,7 +480,6 @@ func (c *Controller) ServeGetLyrics(_ *http.Request) *spec.Response {
 }
 
 func scrobbleStatsUpdateTrack(dbc *db.DB, track *db.Track, userID int) error {
-	// TODO do i need this?
 	tbi := &track.TagBrainzID
 	if len(track.TagBrainzID) == 0 {
 		tbi = nil
@@ -528,7 +527,6 @@ func scrobbleStatsUpdateTrack(dbc *db.DB, track *db.Track, userID int) error {
 		target.TrackID = nil
 	}
 	target.UserID = userID
-	fmt.Printf("%+v\n", target)
 
 	if err := dbc.Save(&target).Error; err != nil {
 		return fmt.Errorf("save stat: %w", err)
