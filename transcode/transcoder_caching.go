@@ -48,7 +48,6 @@ func (t *CachingTranscoder) Transcode(ctx context.Context, profile Profile, in s
 	defer unlock()
 
 	path := filepath.Join(t.cachePath, key)
-
 	cf, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, perm)
 	if err != nil {
 		return fmt.Errorf("open cache file: %w", err)
@@ -59,6 +58,7 @@ func (t *CachingTranscoder) Transcode(ctx context.Context, profile Profile, in s
 	if err != nil {
 		return fmt.Errorf("stat cache file: %w", err)
 	}
+
 	if i.Size() > 0 {
 		_ = os.Chtimes(path, time.Now(), time.Now()) // Touch for LRU cache purposes
 		if profile.Seek() > 0 {
@@ -66,8 +66,11 @@ func (t *CachingTranscoder) Transcode(ctx context.Context, profile Profile, in s
 			return t.seekTranscoder.Transcode(ctx, profile, in, out)
 		} else {
 			// if the seek is zero, just copy the whole file
-			_, _ = io.Copy(out, cf)
-			return nil
+			n, err := io.Copy(out, cf)
+			if n != i.Size() {
+				return fmt.Errorf("should have wrote %d bytes, but actually wrote %d", i.Size(), n)
+			}
+			return err
 		}
 	}
 
@@ -90,7 +93,7 @@ func (t *CachingTranscoder) Transcode(ctx context.Context, profile Profile, in s
 	// ...and then we finally send the seeked data
 	if profile.Seek() != 0 {
 		return t.seekTranscoder.Transcode(ctx, profile, in, out)
-	} // (if the seek is zero, the MultiWriter will have taken care of it)
+	} // (if the seek is zero, the MultiWriter will have already written the data)
 
 	return nil
 }
