@@ -844,14 +844,7 @@ func migrateTrackPlayInit(tx *gorm.DB, _ MigrationContext) error {
 	`).Error; err != nil {
 		return err
 	}
-	if err := tx.Exec(`
+	return tx.Exec(`
 		CREATE UNIQUE INDEX idx_track_plays_user_id_music_brainz_id ON "track_plays" (user_id, music_brainz_id) WHERE music_brainz_id IS NOT NULL;
-	`).Error; err != nil {
-		return err
-	}
-	// TODO do i need this?
-	//return tx.Exec(`
-	//	CREATE INDEX idx_tracks_tag_brainz_id ON "tracks" (tag_brainz_id);
-	//`).Error
-	return nil
+	`).Error
 }

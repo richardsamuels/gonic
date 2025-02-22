@@ -104,6 +104,9 @@ func (c *Controller) ServeGetMusicDirectory(r *http.Request) *spec.Response {
 	transcodeMeta := streamGetTranscodeMeta(c.dbc, user.ID, params.GetOr("c", ""))
 
 	for _, ch := range childTracks {
+		if err := c.sumTrackPlays(user.ID, ch); err != nil {
+			return spec.NewError(0, "fetching track play info: %v", err)
+		}
 		toAppend := spec.NewTCTrackByFolder(ch, folder)
 		if v, _ := params.Get("c"); v == "Jamstash" {
 			// jamstash thinks it can't play flacs
@@ -178,7 +181,7 @@ func (c *Controller) ServeGetAlbumList(r *http.Request) *spec.Response {
 	// TODO: think about removing this extra join to count number
 	// of children. it might make sense to store that in the db
 	q.
-		Select("albums.*, count(tracks.id) child_count, sum(tracks.length) duration, tracks.id as track_id").
+		Select("albums.*, count(tracks.id) child_count, sum(tracks.length) duration").
 		Joins("LEFT JOIN tracks ON tracks.album_id=albums.id").
 		Group("albums.id").
 		Joins("JOIN album_artists ON album_artists.album_id=albums.id").
@@ -287,7 +290,7 @@ func (c *Controller) ServeSearchTwo(r *http.Request) *spec.Response {
 	transcodeMeta := streamGetTranscodeMeta(c.dbc, user.ID, params.GetOr("c", ""))
 
 	for _, t := range tracks {
-		if err := c.populateTrackPlay(user.ID, t); err != nil {
+		if err := c.sumTrackPlays(user.ID, t); err != nil {
 			return err
 		}
 		track := spec.NewTCTrackByFolder(t, t.Album)
@@ -359,8 +362,7 @@ func (c *Controller) ServeGetStarred(r *http.Request) *spec.Response {
 		Where("track_stars.user_id=?", user.ID).
 		Preload("Artists").
 		Preload("TrackStar", "user_id=?", user.ID).
-		Preload("TrackRating", "user_id=?", user.ID).
-		Preload("TrackPlay", "user_id=? AND (track_id=track_id OR music_brainz_id=tag_brainz_id)", user.ID)
+		Preload("TrackRating", "user_id=?", user.ID)
 	if m := getMusicFolder(c.musicPaths, params); m != "" {
 		q = q.
 			Joins("JOIN albums ON albums.id=tracks.album_id").
@@ -373,6 +375,9 @@ func (c *Controller) ServeGetStarred(r *http.Request) *spec.Response {
 	transcodeMeta := streamGetTranscodeMeta(c.dbc, user.ID, params.GetOr("c", ""))
 
 	for _, t := range tracks {
+		if err := c.sumTrackPlays(user.ID, t); err != nil {
+			return err
+		}
 		track := spec.NewTCTrackByFolder(t, t.Album)
 		track.TranscodeMeta = transcodeMeta
 		results.Tracks = append(results.Tracks, track)

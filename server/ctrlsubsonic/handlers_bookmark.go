@@ -42,11 +42,13 @@ func (c *Controller) ServeGetBookmarks(r *http.Request) *spec.Response {
 			var track db.Track
 			err := c.dbc.
 				Preload("Album").
-				Preload("TrackPlays", "user_id=? AND (track_id=id OR music_brainz_id=tag_brainz_id)", user.ID).
 				Find(&track, "id=?", bookmark.EntryID).
 				Error
 			if err != nil {
 				return spec.NewError(10, "finding entry: %v", err)
+			}
+			if err := c.sumTrackPlays(user.ID, &track); err != nil {
+				return spec.NewError(0, "fetching track play info: %v", err)
 			}
 			respBookmark.Entry = spec.NewTrackByTags(&track, track.Album)
 		}

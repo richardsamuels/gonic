@@ -280,11 +280,14 @@ func (c *Controller) ServeGetSong(r *http.Request) *spec.Response {
 		Preload("Artists").
 		Preload("TrackStar", "user_id=?", user.ID).
 		Preload("TrackRating", "user_id=?", user.ID).
-		Preload("TrackPlay", "user_id=? AND (track_id=track_id OR music_brainz_id=tag_brainz_id)", user.ID).
 		First(&track).
 		Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return spec.NewError(70, "couldn't find a track with that id")
+	}
+
+	if err := c.sumTrackPlays(user.ID, &track); err != nil {
+		return err
 	}
 
 	transcodeMeta := streamGetTranscodeMeta(c.dbc, user.ID, params.GetOr("c", ""))
@@ -308,7 +311,6 @@ func (c *Controller) ServeGetRandomSongs(r *http.Request) *spec.Response {
 		Preload("Artists").
 		Preload("TrackStar", "user_id=?", user.ID).
 		Preload("TrackRating", "user_id=?", user.ID).
-		Preload("TrackPlay", "user_id=? AND (music_brainz_id=tracks.tag_brainz_id OR track_id=tracks.id)").
 		Joins("JOIN albums ON tracks.album_id=albums.id").
 		Order(gorm.Expr("random()"))
 	if year, err := params.GetInt("fromYear"); err == nil {
@@ -334,6 +336,9 @@ func (c *Controller) ServeGetRandomSongs(r *http.Request) *spec.Response {
 	transcodeMeta := streamGetTranscodeMeta(c.dbc, user.ID, params.GetOr("c", ""))
 
 	for i, track := range tracks {
+		if err := c.sumTrackPlays(user.ID, track); err != nil {
+			return err
+		}
 		sub.RandomTracks.List[i] = spec.NewTrackByTags(track, track.Album)
 		sub.RandomTracks.List[i].TranscodeMeta = transcodeMeta
 	}
@@ -479,6 +484,36 @@ func (c *Controller) ServeGetLyrics(_ *http.Request) *spec.Response {
 	return sub
 }
 
+func (c *Controller) sumTrackPlays(userID int, t *db.Track) *spec.Response {
+	var tracks []*db.TrackPlay
+
+	if err := c.dbc.Where("user_id=? AND (music_brainz_id=? OR track_id=?)", userID, t.TagBrainzID, t.ID).Find(&tracks).Error; err != nil {
+		return spec.NewError(0, "fetch track play info: %v", err)
+	}
+
+	if len(tracks) > 0 {
+		s := 0
+		for _, tp := range tracks {
+			s += tp.Count
+		}
+		tracks[0].Count = s
+	}
+	if len(tracks) > 0 {
+		t.TrackPlay = tracks[0]
+	}
+
+	return nil
+}
+
+func (c *Controller) populateAlbumTrackPlay(userID int, album *db.Album) *spec.Response {
+	for _, t := range album.Tracks {
+		if err := c.sumTrackPlays(userID, t); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func scrobbleStatsUpdateTrack(dbc *db.DB, track *db.Track, userID int) error {
 	tbi := &track.TagBrainzID
 	if len(track.TagBrainzID) == 0 {
@@ -504,19 +539,16 @@ func scrobbleStatsUpdateTrack(dbc *db.DB, track *db.Track, userID int) error {
 			foundMusicBrainz = true
 		}
 	}
+	tx := dbc.Begin()
 	if foundMusicBrainz {
-		if err := dbc.Transaction(func(tx *db.DB) error {
-			for _, p := range plays {
-				if p.MusicBrainzID == nil {
-					if err := tx.Delete(p).Error; err != nil {
-						return fmt.Errorf("delete old stats: %w", err)
-					}
+		for _, p := range plays {
+			if p.MusicBrainzID == nil || len(*p.MusicBrainzID) == 0 {
+				if err := tx.Delete(p).Error; err != nil {
+					return fmt.Errorf("delete old stats: %w", err)
 				}
 			}
-			return nil
-		}); err != nil {
-			return fmt.Errorf("delete old stats: %w", err)
 		}
+		return nil
 	}
 	target.Count += s + 1
 	if len(track.TagBrainzID) == 0 {
@@ -528,8 +560,11 @@ func scrobbleStatsUpdateTrack(dbc *db.DB, track *db.Track, userID int) error {
 	}
 	target.UserID = userID
 
-	if err := dbc.Save(&target).Error; err != nil {
+	if err := tx.Save(&target).Error; err != nil {
 		return fmt.Errorf("save stat: %w", err)
+	}
+	if err := tx.Commit().Error; err != nil {
+		return fmt.Errorf("commit stats: %w", err)
 	}
 	return nil
 }

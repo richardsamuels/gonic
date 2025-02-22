@@ -104,7 +104,7 @@ func (c *Controller) ServeGetAlbum(r *http.Request) *spec.Response {
 	}
 	album := &db.Album{}
 	err = c.dbc.
-		Select("albums.*, count(tracks.id) child_count, sum(tracks.length) duration, tracks.id as track_id, tracks.tag_brainz_id as tag_brainz_id").
+		Select("albums.*, count(tracks.id) child_count, sum(tracks.length) duration").
 		Joins("LEFT JOIN tracks ON tracks.album_id=albums.id").
 		Preload("Artists").
 		Preload("Genres").
@@ -140,40 +140,6 @@ func (c *Controller) ServeGetAlbum(r *http.Request) *spec.Response {
 		sub.Album.Tracks[i].TranscodeMeta = transcodeMeta
 	}
 	return sub
-}
-
-func (c *Controller) populateTrackPlay(userID int, t *db.Track) *spec.Response {
-	p := &db.TrackPlay{}
-	if len(t.TagBrainzID) != 0 {
-		err := c.dbc.Where("music_brainz_id = ? AND user_id=?", t.TagBrainzID, userID).First(p).Error
-		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-			return spec.NewError(0, "error fetching track play info (via Musicbrainz ID)")
-		}
-		if err == nil {
-			t.TrackPlay = p
-		}
-	}
-	if t.TrackPlay == nil {
-		err := c.dbc.Where("track_id=? AND user_id=?", t.ID, userID).First(p).Error
-		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-			return spec.NewError(0, "error fetching track play info (via ID)")
-		}
-		if err == nil {
-			t.TrackPlay = p
-		}
-
-	}
-	return nil
-}
-
-func (c *Controller) populateAlbumTrackPlay(userID int, album *db.Album) *spec.Response {
-	for _, t := range album.Tracks {
-		if err := c.populateTrackPlay(userID, t); err != nil {
-			return nil
-
-		}
-	}
-	return nil
 }
 
 // ServeGetAlbumListTwo handles the getAlbumList2 view.
@@ -324,8 +290,7 @@ func (c *Controller) ServeSearchThree(r *http.Request) *spec.Response {
 		Preload("Genres").
 		Preload("Artists").
 		Preload("TrackStar", "user_id=?", user.ID).
-		Preload("TrackRating", "user_id=?", user.ID).
-		Preload("TrackPlay", "user_id=?", user.ID)
+		Preload("TrackRating", "user_id=?", user.ID)
 	for _, s := range queries {
 		q = q.Where(`tracks.tag_title LIKE ? OR tracks.tag_title_u_dec LIKE ?`, s, s)
 	}
@@ -343,6 +308,9 @@ func (c *Controller) ServeSearchThree(r *http.Request) *spec.Response {
 	transcodeMeta := streamGetTranscodeMeta(c.dbc, user.ID, params.GetOr("c", ""))
 
 	for _, t := range tracks {
+		if err := c.sumTrackPlays(user.ID, t); err != nil {
+			return err
+		}
 		track := spec.NewTrackByTags(t, t.Album)
 		track.TranscodeMeta = transcodeMeta
 		results.Tracks = append(results.Tracks, track)
@@ -583,8 +551,7 @@ func (c *Controller) ServeGetStarredTwo(r *http.Request) *spec.Response {
 		Preload("Album.Artists").
 		Preload("Artists").
 		Preload("TrackStar", "user_id=?", user.ID).
-		Preload("TrackRating", "user_id=?", user.ID).
-		Preload("TrackPlay", "user_id=? AND (track_id=track_id OR music_brainz_id=tag_brainz_id)", user.ID)
+		Preload("TrackRating", "user_id=?", user.ID)
 	if m := getMusicFolder(c.musicPaths, params); m != "" {
 		q = q.
 			Joins("JOIN albums ON albums.id=tracks.album_id").
@@ -597,6 +564,9 @@ func (c *Controller) ServeGetStarredTwo(r *http.Request) *spec.Response {
 	transcodeMeta := streamGetTranscodeMeta(c.dbc, user.ID, params.GetOr("c", ""))
 
 	for _, t := range tracks {
+		if err := c.sumTrackPlays(user.ID, t); err != nil {
+			return err
+		}
 		track := spec.NewTrackByTags(t, t.Album)
 		track.TranscodeMeta = transcodeMeta
 		results.Tracks = append(results.Tracks, track)
