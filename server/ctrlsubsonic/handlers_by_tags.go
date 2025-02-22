@@ -125,27 +125,8 @@ func (c *Controller) ServeGetAlbum(r *http.Request) *spec.Response {
 		return spec.NewError(70, "couldn't find an album with that id")
 	}
 
-	for _, t := range album.Tracks {
-		p := &db.TrackPlay{}
-		if len(t.TagBrainzID) != 0 {
-			err := c.dbc.Select("track_plays").Where("music_brainz_id = ?", t.TagBrainzID).Find(p).Error
-			if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-				return spec.NewError(0, "error fetching track play info (via Musicbrainz ID)")
-			}
-			if err == nil {
-				t.TrackPlay = p
-			}
-		}
-		if t.TrackPlay == nil {
-			err := c.dbc.Select("track_plays").Where("track_id = ?", t.ID).Find(p).Error
-			if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-				return spec.NewError(0, "error fetching track play info (via ID)")
-			}
-			if err == nil {
-				t.TrackPlay = p
-			}
-
-		}
+	if err := c.populateAlbumTrackPlay(user.ID, album); err != nil {
+		return err
 	}
 
 	sub := spec.NewResponse()
@@ -159,6 +140,40 @@ func (c *Controller) ServeGetAlbum(r *http.Request) *spec.Response {
 		sub.Album.Tracks[i].TranscodeMeta = transcodeMeta
 	}
 	return sub
+}
+
+func (c *Controller) populateTrackPlay(userID int, t *db.Track) *spec.Response {
+	p := &db.TrackPlay{}
+	if len(t.TagBrainzID) != 0 {
+		err := c.dbc.Where("music_brainz_id = ? AND user_id=?", t.TagBrainzID, userID).First(p).Error
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return spec.NewError(0, "error fetching track play info (via Musicbrainz ID)")
+		}
+		if err == nil {
+			t.TrackPlay = p
+		}
+	}
+	if t.TrackPlay == nil {
+		err := c.dbc.Where("track_id=? AND user_id=?", t.ID, userID).First(p).Error
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return spec.NewError(0, "error fetching track play info (via ID)")
+		}
+		if err == nil {
+			t.TrackPlay = p
+		}
+
+	}
+	return nil
+}
+
+func (c *Controller) populateAlbumTrackPlay(userID int, album *db.Album) *spec.Response {
+	for _, t := range album.Tracks {
+		if err := c.populateTrackPlay(userID, t); err != nil {
+			return nil
+
+		}
+	}
+	return nil
 }
 
 // ServeGetAlbumListTwo handles the getAlbumList2 view.
@@ -310,9 +325,7 @@ func (c *Controller) ServeSearchThree(r *http.Request) *spec.Response {
 		Preload("Artists").
 		Preload("TrackStar", "user_id=?", user.ID).
 		Preload("TrackRating", "user_id=?", user.ID).
-		Preload("TrackPlay", func(db *gorm.DB) *gorm.DB {
-			return db.Select("tag_brainz_id").Joins("LEFT JOIN tracks ON tracks.id = track_plays.track_id").Where("user_id =? AND (music_brainz_id=tracks.tag_brainz_id OR track_id=tracks.id)", user.ID)
-		})
+		Preload("TrackPlay", "user_id=?", user.ID)
 	for _, s := range queries {
 		q = q.Where(`tracks.tag_title LIKE ? OR tracks.tag_title_u_dec LIKE ?`, s, s)
 	}
@@ -323,7 +336,7 @@ func (c *Controller) ServeSearchThree(r *http.Request) *spec.Response {
 			Joins("JOIN albums ON albums.id=tracks.album_id").
 			Where("albums.root_dir=?", m)
 	}
-	if err := q.Debug().Find(&tracks).Error; err != nil {
+	if err := q.Find(&tracks).Error; err != nil {
 		return spec.NewError(0, "find tracks: %v", err)
 	}
 

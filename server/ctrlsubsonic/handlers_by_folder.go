@@ -184,7 +184,6 @@ func (c *Controller) ServeGetAlbumList(r *http.Request) *spec.Response {
 		Joins("JOIN album_artists ON album_artists.album_id=albums.id").
 		Offset(params.GetOrInt("offset", 0)).
 		Limit(params.GetOrInt("size", 10)).
-		Preload("Tracks.TrackPlay", "user_id=? AND (track_id=track_id OR music_brainz_id=tracks.tag_brainz_id)", user.ID).
 		Preload("Parent").
 		Preload("AlbumStar", "user_id=?", user.ID).
 		Preload("AlbumRating", "user_id=?", user.ID).
@@ -195,6 +194,9 @@ func (c *Controller) ServeGetAlbumList(r *http.Request) *spec.Response {
 	}
 	for i, folder := range folders {
 		sub.Albums.List[i] = spec.NewAlbumByFolder(folder)
+		if err := c.populateAlbumTrackPlay(user.ID, folder); err != nil {
+			return err
+		}
 	}
 	return sub
 }
@@ -271,10 +273,6 @@ func (c *Controller) ServeSearchTwo(r *http.Request) *spec.Response {
 		Preload("Artists").
 		Preload("TrackStar", "user_id=?", user.ID).
 		Preload("TrackRating", "user_id=?", user.ID).
-		Preload("TrackPlay", func(db *gorm.DB) *gorm.DB {
-			return db.Select("tag_brainz_id").Joins("LEFT JOIN tracks ON tracks.id = track_plays.track_id").Where("user_id =? AND (music_brainz_id=tracks.tag_brainz_id OR track_id=tracks.id)", user.ID)
-		}).
-		//"user_id=? AND (track_id=track_id OR music_brainz_id=tag_brainz_id)", user.ID).
 		Offset(params.GetOrInt("songOffset", 0)).
 		Limit(params.GetOrInt("songCount", 20))
 	if m := getMusicFolder(c.musicPaths, params); m != "" {
@@ -289,6 +287,9 @@ func (c *Controller) ServeSearchTwo(r *http.Request) *spec.Response {
 	transcodeMeta := streamGetTranscodeMeta(c.dbc, user.ID, params.GetOr("c", ""))
 
 	for _, t := range tracks {
+		if err := c.populateTrackPlay(user.ID, t); err != nil {
+			return err
+		}
 		track := spec.NewTCTrackByFolder(t, t.Album)
 		track.TranscodeMeta = transcodeMeta
 		results.Tracks = append(results.Tracks, track)
