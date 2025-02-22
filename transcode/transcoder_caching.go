@@ -58,44 +58,49 @@ func (t *CachingTranscoder) Transcode(ctx context.Context, profile Profile, in s
 	if err != nil {
 		return fmt.Errorf("stat cache file: %w", err)
 	}
-
-	if i.Size() > 0 {
-		_ = os.Chtimes(path, time.Now(), time.Now()) // Touch for LRU cache purposes
-		if profile.Seek() > 0 {
-			// it's already been transcoded, so just seek into it
-			return t.seekTranscoder.Transcode(ctx, profile, in, out)
+	if i.Size() == 0 {
+		zeroProfile := profile
+		var fileOut io.Writer = cf
+		if profile.Seek() == 0 {
+			// If seek is zero, transcode to disc and copy out to socket at same time
+			fileOut = io.MultiWriter(out, cf)
 		} else {
-			// if the seek is zero, just copy the whole file
-			n, err := io.Copy(out, cf)
-			if n != i.Size() {
-				return fmt.Errorf("should have wrote %d bytes, but actually wrote %d", i.Size(), n)
-			}
-			return err
+			// If its non-zero, we force the profile to seek from 0 for
+			// caching purposes...
+			zeroProfile = WithSeek(profile, 0)
+		}
+
+		if err := t.transcoder.Transcode(ctx, zeroProfile, in, fileOut); err != nil {
+			os.Remove(path)
+			return fmt.Errorf("internal transcode: %w", err)
+		}
+
+		if profile.Seek() == 0 {
+			return nil
+		}
+		if err := cf.Sync(); err != nil {
+			return fmt.Errorf("failed to fsync: %v", err)
+		}
+
+		i, err = os.Stat(path)
+		if err != nil {
+			return fmt.Errorf("stat cache file: %w", err)
 		}
 	}
 
-	zeroProfile := profile
-	var fileOut io.Writer = cf
-	if profile.Seek() == 0 {
-		// If seek is zero, transcode to disc and copy out to socket at same time
-		fileOut = io.MultiWriter(out, cf)
-	} else {
-		// If its non-zero, we force the profile to seek from 0 for
-		// caching purposes...
-		zeroProfile = WithSeek(profile, 0)
-	}
-
-	if err := t.transcoder.Transcode(ctx, zeroProfile, in, fileOut); err != nil {
-		os.Remove(path)
-		return fmt.Errorf("internal transcode: %w", err)
-	}
-
-	// ...and then we finally send the seeked data
-	if profile.Seek() != 0 {
+	// If the file size is non-zero, it's already cached
+	_ = os.Chtimes(path, time.Now(), time.Now()) // Touch for LRU cache purposes
+	if profile.Seek() > 0 {
+		// it's already been transcoded, so just seek into it
 		return t.seekTranscoder.Transcode(ctx, profile, in, out)
-	} // (if the seek is zero, the MultiWriter will have already written the data)
-
-	return nil
+	} else {
+		// if the seek is zero, just copy the whole file
+		n, err := io.Copy(out, cf)
+		if n != i.Size() {
+			return fmt.Errorf("should have wrote %d bytes, but actually wrote %d", i.Size(), n)
+		}
+		return err
+	}
 }
 
 func (t *CachingTranscoder) CacheEject() error {
