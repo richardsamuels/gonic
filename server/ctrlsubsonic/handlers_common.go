@@ -515,14 +515,9 @@ func (c *Controller) populateAlbumTrackPlay(userID int, album *db.Album) *spec.R
 }
 
 func scrobbleStatsUpdateTrack(dbc *db.DB, track *db.Track, userID int) error {
-	tbi := &track.TagBrainzID
-	if len(track.TagBrainzID) == 0 {
-		tbi = nil
-	}
-
 	// find all TrackPlay that match track_id or music_brainz_id
 	var plays []*db.TrackPlay
-	if err := dbc.Where("(track_id=? OR music_brainz_id=?) AND user_id=?", track.ID, tbi, userID).Find(&plays).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+	if err := dbc.Where("(track_id=? OR music_brainz_id=?) AND user_id=?", track.ID, track.TagBrainzID, userID).Find(&plays).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return fmt.Errorf("find stat: %w", err)
 	}
 

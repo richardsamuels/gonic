@@ -195,10 +195,10 @@ func (c *Controller) ServeGetAlbumList(r *http.Request) *spec.Response {
 		List: make([]*spec.Album, len(folders)),
 	}
 	for i, folder := range folders {
-		sub.Albums.List[i] = spec.NewAlbumByFolder(folder)
 		if err := c.populateAlbumTrackPlay(user.ID, folder); err != nil {
 			return err
 		}
+		sub.Albums.List[i] = spec.NewAlbumByFolder(folder)
 	}
 	return sub
 }
