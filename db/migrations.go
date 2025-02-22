@@ -838,40 +838,6 @@ func migrateTrackPlayInit(tx *gorm.DB, _ MigrationContext) error {
 	if err := tx.AutoMigrate(TrackPlay{}); err.Error != nil {
 		return err.Error
 	}
-	if err := tx.Exec(`
-		CREATE TEMPORARY TABLE backup_table AS SELECT * FROM track_plays;
-	`).Error; err != nil {
-		return err
-	}
-	if err := tx.Exec(`
-		DROP TABLE track_plays;
-	`).Error; err != nil {
-		return err
-	}
-	if err := tx.AutoMigrate(TrackPlay{}); err.Error != nil {
-		return err.Error
-	}
-	if err := tx.Exec(`
-	INSERT INTO track_plays SELECT * FROM backup_table;
-	`).Error; err != nil {
-		return err
-	}
-	if err := tx.Exec(`
-	DROP TABLE backup_table;
-	`).Error; err != nil {
-		return err
-	}
-
-	if err := tx.Exec(`
-		DROP INDEX IF EXISTS idx_track_plays_user_id_track_id;
-	`).Error; err != nil {
-		return err
-	}
-	if err := tx.Exec(`
-		DROP INDEX IF EXISTS idx_track_plays_user_id_music_brainz_id;
-	`).Error; err != nil {
-		return err
-	}
 
 	if err := tx.Exec(`
 		CREATE UNIQUE INDEX idx_track_plays_user_id_track_id ON "track_plays" (user_id, track_id) WHERE track_id IS NOT NULL;

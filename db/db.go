@@ -302,7 +302,7 @@ type TrackPlay struct {
 
 	// Mutually exclusive
 	TrackID       *int    `gorm:"null; check:((track_id IS NOT NULL AND music_brainz_id IS NULL) OR (track_id IS NULL AND music_brainz_id IS NOT NULL))" sql:"default: null; type:int REFERENCES tracks(id) ON DELETE CASCADE"`
-	MusicBrainzID *string `gorm:"null; check:(length(music_brain_id) > 0)" sql:"default: null;"`
+	MusicBrainzID *string `gorm:"null; check:(length(music_brainz_id) > 0)" sql:"default: null;"`
 }
 
 type User struct {
