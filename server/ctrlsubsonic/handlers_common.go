@@ -521,13 +521,13 @@ func getTrackStatsQuery(db *db.DB, userID int, trackID int, brainzID string) *go
 func scrobbleStatsUpdateTrack(dbc *db.DB, track *db.Track, userID int) error {
 	q := getTrackStatsQuery(dbc, userID, track.ID, track.TagBrainzID)
 	play := db.TrackPlay{}
-	if err := dbc.Model(&play).Where(q).
-		UpdateColumn("count", gorm.Expr("count + ?", 1)).Error; err != nil {
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return fmt.Errorf("update track stat: %w", err)
-		}
-
-		play.Count++
+	ret := dbc.Model(&play).Where(q).
+		UpdateColumn("count", gorm.Expr("count + ?", 1))
+	if ret.Error != nil && !errors.Is(ret.Error, gorm.ErrRecordNotFound) {
+		return fmt.Errorf("update track stat: %w", ret.Error)
+	}
+	if ret.RowsAffected == 0 {
+		play = db.TrackPlay{Count: 1, UserID: userID}
 		if len(track.TagBrainzID) == 0 {
 			play.TrackID = &track.ID
 			play.MusicBrainzID = nil
@@ -535,7 +535,6 @@ func scrobbleStatsUpdateTrack(dbc *db.DB, track *db.Track, userID int) error {
 			play.MusicBrainzID = &track.TagBrainzID
 			play.TrackID = nil
 		}
-		play.UserID = userID
 		if err := dbc.Create(&play).Error; err != nil {
 			return fmt.Errorf("create track stat: %w", err)
 		}
