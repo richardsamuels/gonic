@@ -75,7 +75,7 @@ func (db *DB) Migrate(ctx MigrationContext) error {
 		construct(ctx, "202405301140", migrateAddReplayGainFields),
 		construct(ctx, "202501152035", migrateTrackAddIndexOnAlbumID),
 		construct(ctx, "202501152036", migrateAlbumAddIndexOnParentID),
-		construct(ctx, "202502211905", migrateTrackPlayInit),
+		construct(ctx, "202502211906", migrateTrackPlayInit),
 	}
 
 	return gormigrate.

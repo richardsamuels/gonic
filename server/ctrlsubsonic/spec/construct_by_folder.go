@@ -79,6 +79,9 @@ func NewTCTrackByFolder(t *db.Track, parent *db.Album) *TrackChild {
 		CreatedAt:     t.CreatedAt,
 		AverageRating: formatRating(t.AverageRating),
 	}
+	if t.TrackPlay != nil {
+		trCh.PlayCount = t.TrackPlay.Count
+	}
 	if trCh.Title == "" {
 		trCh.Title = t.Filename
 	}

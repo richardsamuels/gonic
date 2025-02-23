@@ -47,7 +47,7 @@ func (c *Controller) ServeGetBookmarks(r *http.Request) *spec.Response {
 			if err != nil {
 				return spec.NewError(10, "finding entry: %v", err)
 			}
-			if err := c.populateTracksTrackPlays([]*db.Track{&track}, user.ID); err != nil {
+			if err := populateTracksTrackPlays(c.dbc, []*db.Track{&track}, user.ID); err != nil {
 				return spec.NewError(0, "Error fetching track plays info: %v", err)
 			}
 			respBookmark.Entry = spec.NewTrackByTags(&track, track.Album)

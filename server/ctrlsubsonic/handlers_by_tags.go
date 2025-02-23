@@ -130,7 +130,7 @@ func (c *Controller) ServeGetAlbum(r *http.Request) *spec.Response {
 
 	transcodeMeta := streamGetTranscodeMeta(c.dbc, user.ID, params.GetOr("c", ""))
 
-	if err := c.populateTracksTrackPlays(album.Tracks, user.ID); err != nil {
+	if err := populateTracksTrackPlays(c.dbc, album.Tracks, user.ID); err != nil {
 		return spec.NewError(0, "Error fetching track plays info: %v", err)
 	}
 
@@ -211,7 +211,7 @@ func (c *Controller) ServeGetAlbumListTwo(r *http.Request) *spec.Response {
 	sub.AlbumsTwo = &spec.Albums{
 		List: make([]*spec.Album, len(albums)),
 	}
-	if err := c.populateAlbumsTrackPlays(albums, user.ID); err != nil {
+	if err := populateAlbumsTrackPlays(c.dbc, albums, user.ID); err != nil {
 		return spec.NewError(0, "Error fetching track plays info: %v", err)
 	}
 	for i, album := range albums {
@@ -309,7 +309,7 @@ func (c *Controller) ServeSearchThree(r *http.Request) *spec.Response {
 
 	transcodeMeta := streamGetTranscodeMeta(c.dbc, user.ID, params.GetOr("c", ""))
 
-	if err := c.populateTracksTrackPlays(tracks, user.ID); err != nil {
+	if err := populateTracksTrackPlays(c.dbc, tracks, user.ID); err != nil {
 		return spec.NewError(0, "Error fetching track plays info: %v", err)
 	}
 
@@ -565,7 +565,7 @@ func (c *Controller) ServeGetStarredTwo(r *http.Request) *spec.Response {
 	}
 
 	transcodeMeta := streamGetTranscodeMeta(c.dbc, user.ID, params.GetOr("c", ""))
-	if err := c.populateTracksTrackPlays(tracks, user.ID); err != nil {
+	if err := populateTracksTrackPlays(c.dbc, tracks, user.ID); err != nil {
 		return spec.NewError(0, "Error fetching track plays info: %v", err)
 	}
 
@@ -643,7 +643,7 @@ func (c *Controller) ServeGetTopSongs(r *http.Request) *spec.Response {
 	}
 
 	transcodeMeta := streamGetTranscodeMeta(c.dbc, user.ID, params.GetOr("c", ""))
-	if err := c.populateTracksTrackPlays(tracks, user.ID); err != nil {
+	if err := populateTracksTrackPlays(c.dbc, tracks, user.ID); err != nil {
 		return spec.NewError(0, "Error fetching track plays info: %v", err)
 	}
 

@@ -87,7 +87,7 @@ func newMockFS(tb testing.TB, dirs []string, excludePattern string) *MockFS {
 			temp.TrackID = nil
 			temp.MusicBrainzID = &track.TagBrainzID
 		}
-		temp.Count = i * 10
+		temp.Count = (i + 1) * 10
 
 		if err := dbc.Save(temp); err != nil {
 			tb.Fatalf("save track play: %v", err)

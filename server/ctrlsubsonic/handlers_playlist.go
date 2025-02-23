@@ -39,7 +39,7 @@ func (c *Controller) ServeGetPlaylists(r *http.Request) *spec.Response {
 			continue
 		}
 		playlistID := playlistIDEncode(path)
-		rendered, err := playlistRender(c, params, playlistID, playlist, false)
+		rendered, err := playlistRender(c, params, playlistID, playlist, user.ID, false)
 		if err != nil {
 			return spec.NewError(0, "error rendering playlist %q: %v", path, err)
 		}
@@ -50,6 +50,7 @@ func (c *Controller) ServeGetPlaylists(r *http.Request) *spec.Response {
 
 func (c *Controller) ServeGetPlaylist(r *http.Request) *spec.Response {
 	params := r.Context().Value(CtxParams).(params.Params)
+	user := r.Context().Value(CtxUser).(*db.User)
 	playlistID, err := params.GetFirst("id", "playlistId")
 	if err != nil {
 		return spec.NewError(10, "please provide an `id` parameter")
@@ -59,7 +60,7 @@ func (c *Controller) ServeGetPlaylist(r *http.Request) *spec.Response {
 		return spec.NewError(70, "playlist with id %s not found", playlistID)
 	}
 	sub := spec.NewResponse()
-	rendered, err := playlistRender(c, params, playlistID, playlist, true)
+	rendered, err := playlistRender(c, params, playlistID, playlist, user.ID, true)
 	if err != nil {
 		return spec.NewError(0, "error rendering playlist: %v", err)
 	}
@@ -112,7 +113,7 @@ func (c *Controller) ServeCreateOrUpdatePlaylist(r *http.Request) *spec.Response
 	}
 
 	sub := spec.NewResponse()
-	rendered, err := playlistRender(c, params, playlistID, &playlist, true)
+	rendered, err := playlistRender(c, params, playlistID, &playlist, user.ID, true)
 	if err != nil {
 		return spec.NewError(0, "error rendering playlist: %v", err)
 	}
@@ -189,7 +190,7 @@ func playlistIDDecode(id string) string {
 	return string(path)
 }
 
-func playlistRender(c *Controller, params params.Params, playlistID string, playlist *playlistp.Playlist, withItems bool) (*spec.Playlist, error) {
+func playlistRender(c *Controller, params params.Params, playlistID string, playlist *playlistp.Playlist, clientUserID int, withItems bool) (*spec.Playlist, error) {
 	user := &db.User{}
 	if err := c.dbc.Where("id=?", playlist.UserID).Find(user).Error; err != nil {
 		return nil, fmt.Errorf("find user by id: %w", err)
@@ -232,7 +233,7 @@ func playlistRender(c *Controller, params params.Params, playlistID string, play
 				return nil, fmt.Errorf("load track by id: %w", err)
 			}
 
-			if err := c.populateTrackPlays(&track, user.ID); err != nil {
+			if err := populateTracksTrackPlays(c.dbc, []*db.Track{&track}, clientUserID); err != nil {
 				return nil, fmt.Errorf("load playlist track play info: %v", err)
 			}
 
