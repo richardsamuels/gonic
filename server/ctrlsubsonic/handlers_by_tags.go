@@ -124,17 +124,17 @@ func (c *Controller) ServeGetAlbum(r *http.Request) *spec.Response {
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return spec.NewError(70, "couldn't find an album with that id")
 	}
-
 	sub := spec.NewResponse()
 	sub.Album = spec.NewAlbumByTags(album, album.Artists)
 	sub.Album.Tracks = make([]*spec.TrackChild, len(album.Tracks))
 
 	transcodeMeta := streamGetTranscodeMeta(c.dbc, user.ID, params.GetOr("c", ""))
 
+	if err := c.populateTracksTrackPlays(album.Tracks, user.ID); err != nil {
+		return spec.NewError(0, "Error fetching track plays info: %v", err)
+	}
+
 	for i, track := range album.Tracks {
-		if err := c.populateTrackPlays(track, user.ID); err != nil {
-			return spec.NewError(0, "Error fetching track plays info: %v", err)
-		}
 		sub.Album.Tracks[i] = spec.NewTrackByTags(track, album)
 		sub.Album.Tracks[i].TranscodeMeta = transcodeMeta
 	}
@@ -211,10 +211,10 @@ func (c *Controller) ServeGetAlbumListTwo(r *http.Request) *spec.Response {
 	sub.AlbumsTwo = &spec.Albums{
 		List: make([]*spec.Album, len(albums)),
 	}
+	if err := c.populateAlbumsTrackPlays(albums, user.ID); err != nil {
+		return spec.NewError(0, "Error fetching track plays info: %v", err)
+	}
 	for i, album := range albums {
-		if err := c.populateAlbumsTrackPlays(album, user.ID); err != nil {
-			return spec.NewError(0, "Error fetching album's track play info: %v", err)
-		}
 		sub.AlbumsTwo.List[i] = spec.NewAlbumByTags(album, album.Artists)
 	}
 	return sub
@@ -281,9 +281,6 @@ func (c *Controller) ServeSearchThree(r *http.Request) *spec.Response {
 		return spec.NewError(0, "find albums: %v", err)
 	}
 	for _, a := range albums {
-		if err := c.populateAlbumsTrackPlays(a, user.ID); err != nil {
-			return spec.NewError(0, "Error fetching album track play info: %v", err)
-		}
 		results.Albums = append(results.Albums, spec.NewAlbumByTags(a, a.Artists))
 	}
 
@@ -312,10 +309,11 @@ func (c *Controller) ServeSearchThree(r *http.Request) *spec.Response {
 
 	transcodeMeta := streamGetTranscodeMeta(c.dbc, user.ID, params.GetOr("c", ""))
 
+	if err := c.populateTracksTrackPlays(tracks, user.ID); err != nil {
+		return spec.NewError(0, "Error fetching track plays info: %v", err)
+	}
+
 	for _, t := range tracks {
-		if err := c.populateTrackPlays(t, user.ID); err != nil {
-			return spec.NewError(0, "Error fetching track play info: %v", err)
-		}
 		track := spec.NewTrackByTags(t, t.Album)
 		track.TranscodeMeta = transcodeMeta
 		results.Tracks = append(results.Tracks, track)
@@ -567,11 +565,11 @@ func (c *Controller) ServeGetStarredTwo(r *http.Request) *spec.Response {
 	}
 
 	transcodeMeta := streamGetTranscodeMeta(c.dbc, user.ID, params.GetOr("c", ""))
+	if err := c.populateTracksTrackPlays(tracks, user.ID); err != nil {
+		return spec.NewError(0, "Error fetching track plays info: %v", err)
+	}
 
 	for _, t := range tracks {
-		if err := c.populateTrackPlays(t, user.ID); err != nil {
-			return spec.NewError(0, "Error fetching track plays info: %v", err)
-		}
 		track := spec.NewTrackByTags(t, t.Album)
 		track.TranscodeMeta = transcodeMeta
 		results.Tracks = append(results.Tracks, track)
@@ -645,11 +643,11 @@ func (c *Controller) ServeGetTopSongs(r *http.Request) *spec.Response {
 	}
 
 	transcodeMeta := streamGetTranscodeMeta(c.dbc, user.ID, params.GetOr("c", ""))
+	if err := c.populateTracksTrackPlays(tracks, user.ID); err != nil {
+		return spec.NewError(0, "Error fetching track plays info: %v", err)
+	}
 
 	for _, track := range tracks {
-		if err := c.populateTrackPlays(track, user.ID); err != nil {
-			return spec.NewError(0, "Error fetching track plays info: %v", err)
-		}
 		tc := spec.NewTrackByTags(track, track.Album)
 		tc.TranscodeMeta = transcodeMeta
 		sub.TopSongs.Tracks = append(sub.TopSongs.Tracks, tc)

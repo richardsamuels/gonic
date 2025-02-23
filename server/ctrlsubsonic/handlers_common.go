@@ -285,7 +285,7 @@ func (c *Controller) ServeGetSong(r *http.Request) *spec.Response {
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return spec.NewError(70, "couldn't find a track with that id")
 	}
-	if err := c.populateTrackPlays(&track, user.ID); err != nil {
+	if err := c.populateTracksTrackPlays([]*db.Track{&track}, user.ID); err != nil {
 		return spec.NewError(0, "Error fetching track plays info: %v", err)
 	}
 
@@ -333,11 +333,11 @@ func (c *Controller) ServeGetRandomSongs(r *http.Request) *spec.Response {
 	sub.RandomTracks.List = make([]*spec.TrackChild, len(tracks))
 
 	transcodeMeta := streamGetTranscodeMeta(c.dbc, user.ID, params.GetOr("c", ""))
+	if err := c.populateTracksTrackPlays(tracks, user.ID); err != nil {
+		return spec.NewError(0, "Error fetching track plays info: %v", err)
+	}
 
 	for i, track := range tracks {
-		if err := c.populateTrackPlays(track, user.ID); err != nil {
-			return spec.NewError(0, "Error fetching track plays info: %v", err)
-		}
 		sub.RandomTracks.List[i] = spec.NewTrackByTags(track, track.Album)
 		sub.RandomTracks.List[i].TranscodeMeta = transcodeMeta
 	}
@@ -482,30 +482,104 @@ func (c *Controller) ServeGetLyrics(_ *http.Request) *spec.Response {
 	sub.Lyrics = &spec.Lyrics{}
 	return sub
 }
-func (c *Controller) populateAlbumsTrackPlays(a *db.Album, userID int) error {
-	for _, t := range a.Tracks {
-		if err := c.populateTrackPlays(t, userID); err != nil {
-			return fmt.Errorf("fetch album's track play info: %v", err)
-		}
+
+func (c *Controller) populateAlbumsTrackPlays(a []*db.Album, userID int) error {
+	trackIDs, brainzIDs := []int{}, []string{}
+	for _, a := range a {
+		tempTrackIDs, tempBrainzIDs := collectIDsFromTracks(a.Tracks)
+		trackIDs = append(trackIDs, tempTrackIDs...)
+		brainzIDs = append(brainzIDs, tempBrainzIDs...)
+	}
+
+	byBrainzIDs, byTrackIDs, err := fetchTrackPlays(c.dbc, userID, trackIDs, brainzIDs)
+	if err != nil {
+		return fmt.Errorf("fetch track plays: %w", err)
+	}
+
+	for _, a := range a {
+		populateTrackPlays(a.Tracks, byBrainzIDs, byTrackIDs)
 	}
 	return nil
 }
 
-func (c *Controller) populateTrackPlays(t *db.Track, userID int) error {
-	// Preload always injects `WHERE track_id IN (...)`, but we need use
-	// either the track_id or the tag_brainz_id, depending on whats
-	// available.
-	q := getTrackStatsQuery(c.dbc, userID, t.ID, t.TagBrainzID)
-	play := &db.TrackPlay{}
-	err := q.Find(&play).Error
-	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-		return fmt.Errorf("fetch track play info: %v", err)
-	}
-	if err == nil {
-		t.TrackPlay = play
+func (c *Controller) populateAlbumTrackPlays(a *db.Album, userID int) error {
+	trackIDs, brainzIDs := collectIDsFromTracks(a.Tracks)
+	byBrainzIDs, byTrackIDs, err := fetchTrackPlays(c.dbc, userID, trackIDs, brainzIDs)
+	if err != nil {
+		return fmt.Errorf("fetch track plays: %w", err)
 	}
 
+	populateTrackPlays(a.Tracks, byBrainzIDs, byTrackIDs)
 	return nil
+}
+func populateTrackPlays(tracks []*db.Track, byBrainzIDs map[string]*db.TrackPlay, byTrackIDs map[int]*db.TrackPlay) {
+	for _, t := range tracks {
+		var play *db.TrackPlay
+		if len(t.TagBrainzID) > 0 {
+			play = byBrainzIDs[*&t.TagBrainzID]
+		} else {
+			play = byTrackIDs[t.ID]
+		}
+		t.TrackPlay = play
+	}
+}
+
+func fetchTrackPlays(dbc *db.DB, userID int, trackIDs []int, brainzIDs []string) (map[string]*db.TrackPlay, map[int]*db.TrackPlay, error) {
+	plays := []*db.TrackPlay{}
+	q := getTrackStatsJoin(dbc, userID, trackIDs, brainzIDs)
+	if err := q.Find(&plays).Error; err != nil && errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil, fmt.Errorf("fetch track play info for album: %v", err)
+	}
+	m := map[string]*db.TrackPlay{}
+	m2 := map[int]*db.TrackPlay{}
+	for _, p := range plays {
+		if p.MusicBrainzID != nil && len(*p.MusicBrainzID) > 0 {
+			m[*p.MusicBrainzID] = p
+		} else {
+			m2[*p.TrackID] = p
+		}
+	}
+
+	return m, m2, nil
+}
+
+func (c *Controller) populateTracksTrackPlays(tracks []*db.Track, userID int) error {
+	trackIDs, brainzIDs := collectIDsFromTracks(tracks)
+	byBrainzIDs, byTrackIDs, err := fetchTrackPlays(c.dbc, userID, trackIDs, brainzIDs)
+	if err != nil {
+		return fmt.Errorf("fetch track plays: %w", err)
+	}
+
+	populateTrackPlays(tracks, byBrainzIDs, byTrackIDs)
+	return nil
+}
+
+func collectIDsFromTracks(tracks []*db.Track) ([]int, []string) {
+	trackIDs := []int{}
+	brainzIDs := []string{}
+
+	for _, t := range tracks {
+		if len(t.TagBrainzID) > 0 {
+			brainzIDs = append(brainzIDs, t.TagBrainzID)
+		} else {
+			trackIDs = append(trackIDs, t.ID)
+		}
+	}
+
+	return trackIDs, brainzIDs
+}
+
+func getTrackStatsJoin(db *db.DB, userID int, trackIDs []int, brainzIDs []string) *gorm.DB {
+	//SELECT track_plays.*, COALESCE(tracks.id, track_plays.track_id) as track_id FROM track_plays
+	//left join tracks on tracks.tag_brainz_id = track_plays.music_brainz_id
+	//WHERE user_id = 1
+
+	or := db.Where("track_id IN ?", trackIDs).Or("music_brainz_id IN ?", brainzIDs)
+	return db.Debug().
+		Select("track_plays.*, COALESCE(tracks.id, track_plays.track_id) as track_id").
+		Not("track_plays.track_id").
+		Joins("LEFT JOIN tracks ON tracks.tag_brainz_id = track_plays.music_brainz_id").
+		Where("user_id=?", userID).Where(or)
 }
 
 func getTrackStatsQuery(db *db.DB, userID int, trackID int, brainzID string) *gorm.DB {
@@ -533,7 +607,7 @@ func scrobbleStatsUpdateTrack(dbc *db.DB, track *db.Track, userID int) error {
 	if ret.Error != nil && !errors.Is(ret.Error, gorm.ErrRecordNotFound) {
 		return fmt.Errorf("update track stat: %w", ret.Error)
 	}
-	if ret.RowsAffected == 1 {
+	if ret.RowsAffected == 0 {
 		dbc.Model(&play).UpdateColumn("count", gorm.Expr("count + ?", 1))
 	}
 	return nil
