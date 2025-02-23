@@ -232,7 +232,7 @@ func playlistRender(c *Controller, params params.Params, playlistID string, play
 				return nil, fmt.Errorf("load track by id: %w", err)
 			}
 
-			if err := c.populateTracksTrackPlays([]*db.Track{&track}, user.ID); err != nil {
+			if err := c.populateTrackPlays(&track, user.ID); err != nil {
 				return nil, fmt.Errorf("load playlist track play info: %v", err)
 			}
 
