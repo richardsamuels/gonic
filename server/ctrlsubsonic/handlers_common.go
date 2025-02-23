@@ -519,25 +519,22 @@ func getTrackStatsQuery(db *db.DB, userID int, trackID int, brainzID string) *go
 }
 
 func scrobbleStatsUpdateTrack(dbc *db.DB, track *db.Track, userID int) error {
+	play := db.TrackPlay{Count: 1, UserID: userID}
+	if len(track.TagBrainzID) == 0 {
+		play.TrackID = &track.ID
+		play.MusicBrainzID = nil
+	} else {
+		play.MusicBrainzID = &track.TagBrainzID
+		play.TrackID = nil
+	}
+
 	q := getTrackStatsQuery(dbc, userID, track.ID, track.TagBrainzID)
-	play := db.TrackPlay{}
-	ret := dbc.Model(&play).Where(q).
-		UpdateColumn("count", gorm.Expr("count + ?", 1))
+	ret := q.Model(&play).FirstOrCreate(&play)
 	if ret.Error != nil && !errors.Is(ret.Error, gorm.ErrRecordNotFound) {
 		return fmt.Errorf("update track stat: %w", ret.Error)
 	}
-	if ret.RowsAffected == 0 {
-		play = db.TrackPlay{Count: 1, UserID: userID}
-		if len(track.TagBrainzID) == 0 {
-			play.TrackID = &track.ID
-			play.MusicBrainzID = nil
-		} else {
-			play.MusicBrainzID = &track.TagBrainzID
-			play.TrackID = nil
-		}
-		if err := dbc.Create(&play).Error; err != nil {
-			return fmt.Errorf("create track stat: %w", err)
-		}
+	if ret.RowsAffected == 1 {
+		dbc.Model(&play).UpdateColumn("count", gorm.Expr("count + ?", 1))
 	}
 	return nil
 }
