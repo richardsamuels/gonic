@@ -586,25 +586,48 @@ func getTrackStatsQuery(db *db.DB, userID int, trackID int, brainzID string) *go
 	return query
 }
 
-func scrobbleStatsUpdateTrack(dbc *db.DB, track *db.Track, userID int) error {
-	play := db.TrackPlay{Count: 1, UserID: userID}
-	if len(track.TagBrainzID) == 0 {
-		play.TrackID = &track.ID
-		play.MusicBrainzID = nil
-	} else {
-		play.MusicBrainzID = &track.TagBrainzID
-		play.TrackID = nil
-	}
+func scrobbleStatsUpdateTrack(_dbc *db.DB, track *db.Track, userID int) error {
+	return _dbc.Transaction(func(tx *db.DB) error {
+		play := db.TrackPlay{}
+		q := getTrackStatsQuery(tx, userID, track.ID, track.TagBrainzID)
+		err := q.Find(&play).Error
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return fmt.Errorf("update track stat: %w", err)
+		}
 
-	q := getTrackStatsQuery(dbc, userID, track.ID, track.TagBrainzID)
-	ret := q.Model(&play).FirstOrCreate(&play)
-	if ret.Error != nil && !errors.Is(ret.Error, gorm.ErrRecordNotFound) {
-		return fmt.Errorf("update track stat: %w", ret.Error)
-	}
-	if ret.RowsAffected == 0 {
-		dbc.Model(&play).UpdateColumn("count", gorm.Expr("count + ?", 1))
-	}
-	return nil
+		// Some clients behave poorly and send multiple scrobbles in quick
+		// succession leading to overinflated play counts.
+		// Last.fm appears to deduplicate in this scenario so let's copy their rules:
+		// A track must be listened to for 50% of its duration or 4 minutes,
+		// whichever comes first.
+		if err == nil {
+			dontScrobbleBeforeSecs := track.Length / 2
+			if dontScrobbleBeforeSecs >= 60*4 {
+				dontScrobbleBeforeSecs = 60 * 4
+			}
+			dontScrobbleBefore := play.UpdatedAt
+			dontScrobbleBefore = dontScrobbleBefore.Add(time.Duration(dontScrobbleBeforeSecs) * time.Second)
+			if !time.Now().After(dontScrobbleBefore) {
+				return nil
+			}
+		}
+
+		play.UserID = userID
+		play.Count++
+		if len(track.TagBrainzID) == 0 {
+			play.TrackID = &track.ID
+			play.MusicBrainzID = nil
+		} else {
+			play.MusicBrainzID = &track.TagBrainzID
+			play.TrackID = nil
+		}
+
+		if err := tx.Save(&play).Error; err != nil {
+			return fmt.Errorf("update track stat: %w", err)
+		}
+		return nil
+
+	})
 }
 
 func scrobbleStatsUpdateAlbum(dbc *db.DB, track *db.Track, userID int, playTime time.Time) error {
