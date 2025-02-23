@@ -394,9 +394,11 @@ func (s *Scanner) populateTrackAndArtists(tx *db.DB, st *State, i int, album *db
 	if err := populateTrackGenres(tx, &track, genreIDs); err != nil {
 		return fmt.Errorf("populate track genres: %w", err)
 	}
-	// if track was updated and has a new music brainz id
-	// if a track has its brainz id changed or removd, we can't
-	// do much in that case, so we only support no id -> have id case
+
+	// If a track now has a brainz id, we need to replace the track_id
+	// with the new ID in track_plays. There is no way to do this
+	// accurately if we are removing a brainz id, so we only support
+	// the no -> have id case
 	if oldBrainzId != nil && len(*oldBrainzId) == 0 && len(track.TagBrainzID) > 0 {
 		if err := tx.Model(db.TrackPlay{}).Where("track_id=?", track.ID).Updates(
 			map[string]interface{}{"track_id": nil, "music_brainz_id": &track.TagBrainzID},

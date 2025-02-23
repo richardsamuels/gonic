@@ -492,7 +492,7 @@ func (c *Controller) populateAlbumsTrackPlays(a *db.Album, userID int) error {
 }
 
 func (c *Controller) populateTrackPlays(t *db.Track, userID int) error {
-	// Preload always injects `WHERE track_id = ?`, but we need use
+	// Preload always injects `WHERE track_id IN (...)`, but we need use
 	// either the track_id or the tag_brainz_id, depending on whats
 	// available.
 	q := getTrackStatsQuery(c.dbc, userID, t.ID, t.TagBrainzID)
@@ -519,15 +519,13 @@ func getTrackStatsQuery(db *db.DB, userID int, trackID int, brainzID string) *go
 }
 
 func scrobbleStatsUpdateTrack(dbc *db.DB, track *db.Track, userID int) error {
-	return dbc.Transaction(func(tx *db.DB) error {
-		play := db.TrackPlay{}
-		// find all TrackPlay that match track_id or music_brainz_id
-		// This query is built like this to avoid a table scan
-		q := getTrackStatsQuery(tx, userID, track.ID, track.TagBrainzID)
-		if err := q.Find(&play).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-			return fmt.Errorf("find stat: %w", err)
+	q := getTrackStatsQuery(dbc, userID, track.ID, track.TagBrainzID)
+	play := db.TrackPlay{}
+	if err := dbc.Model(&play).Where(q).
+		UpdateColumn("count", gorm.Expr("count + ?", 1)).Error; err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return fmt.Errorf("update track stat: %w", err)
 		}
-		fmt.Printf("play: %+v\n", play)
 
 		play.Count++
 		if len(track.TagBrainzID) == 0 {
@@ -538,13 +536,11 @@ func scrobbleStatsUpdateTrack(dbc *db.DB, track *db.Track, userID int) error {
 			play.TrackID = nil
 		}
 		play.UserID = userID
-		fmt.Printf("play2: %+v\n", play)
-
-		if err := tx.Save(&play).Error; err != nil {
-			return fmt.Errorf("save stat: %w", err)
+		if err := dbc.Create(&play).Error; err != nil {
+			return fmt.Errorf("create track stat: %w", err)
 		}
-		return nil
-	})
+	}
+	return nil
 }
 
 func scrobbleStatsUpdateAlbum(dbc *db.DB, track *db.Track, userID int, playTime time.Time) error {
