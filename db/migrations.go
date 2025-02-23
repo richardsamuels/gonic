@@ -75,7 +75,7 @@ func (db *DB) Migrate(ctx MigrationContext) error {
 		construct(ctx, "202405301140", migrateAddReplayGainFields),
 		construct(ctx, "202501152035", migrateTrackAddIndexOnAlbumID),
 		construct(ctx, "202501152036", migrateAlbumAddIndexOnParentID),
-		construct(ctx, "202502211906", migrateTrackPlayInit),
+		construct(ctx, "202502211907", migrateTrackPlayInit),
 	}
 
 	return gormigrate.
@@ -837,6 +837,12 @@ func migrateAlbumAddIndexOnParentID(tx *gorm.DB, _ MigrationContext) error {
 func migrateTrackPlayInit(tx *gorm.DB, _ MigrationContext) error {
 	if err := tx.AutoMigrate(TrackPlay{}); err.Error != nil {
 		return err.Error
+	}
+
+	if err := tx.Exec(`
+		CREATE INDEX idx_tracks_tag_brainz_id ON "tracks" (tag_brainz_id);
+	`).Error; err != nil {
+		return err
 	}
 
 	if err := tx.Exec(`
