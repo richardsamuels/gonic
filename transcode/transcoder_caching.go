@@ -73,11 +73,10 @@ func (t *CachingTranscoder) TranscodeToDisk(ctx context.Context, profile Profile
 	}
 	defer cf.Close()
 
-	log.Printf("trancoding to %q with at bitrate %d", profile.MIME(), profile.BitRate())
+	log.Printf("prefetch trancoding to %q with at bitrate %d", profile.MIME(), profile.BitRate())
 	if err := t.Transcode(ctx, profile, in, cf); err != nil {
 		return "", fmt.Errorf("transcode: %w", err)
 	}
-	_ = os.Chtimes(path, time.Now(), time.Now()) // Touch for LRU cache purposes
 	return path, nil
 }
 
