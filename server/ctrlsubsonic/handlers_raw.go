@@ -186,7 +186,7 @@ func (c *Controller) ServeStreamPrefetchTranscoder(w http.ResponseWriter, r *htt
 
 	maxBitRate, _ := params.GetInt("maxBitRate")
 	format, _ := params.Get("format")
-	timeOffset, _ := params.GetInt("timeOffset")
+	//timeOffset, _ := params.GetInt("timeOffset")
 
 	if format == "raw" {
 		http.ServeFile(w, r, file.AbsPath())
@@ -219,9 +219,6 @@ func (c *Controller) ServeStreamPrefetchTranscoder(w http.ResponseWriter, r *htt
 	}
 	if maxBitRate > 0 && int(profile.BitRate()) > maxBitRate {
 		profile = transcode.WithBitrate(profile, transcode.BitRate(maxBitRate))
-	}
-	if timeOffset > 0 {
-		profile = transcode.WithSeek(profile, time.Second*time.Duration(timeOffset))
 	}
 
 	transcoder, ok := c.transcoder.(*transcode.CachingTranscoder)

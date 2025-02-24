@@ -74,9 +74,12 @@ func (t *CachingTranscoder) TranscodeToDisk(ctx context.Context, profile Profile
 	defer cf.Close()
 
 	log.Printf("prefetch trancoding to %q with at bitrate %d", profile.MIME(), profile.BitRate())
+	start := time.Now()
 	if err := t.doTranscode(ctx, profile, in, path, cf); err != nil {
 		return "", fmt.Errorf("transcode: %w", err)
 	}
+	total := time.Now().Sub(start)
+	log.Printf("transcode op for '%s' took %f seconds", in, total.Seconds())
 	return path, nil
 }
 
