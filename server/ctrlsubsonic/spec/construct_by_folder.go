@@ -90,6 +90,7 @@ func NewTCTrackByFolder(t *db.Track, parent *db.Album) *TrackChild {
 	}
 	if t.Album != nil {
 		trCh.Album = t.Album.RightPath
+		trCh.AlbumID = t.Album.SID()
 	}
 	if t.TrackStar != nil {
 		trCh.Starred = &t.TrackStar.StarDate
@@ -104,7 +105,13 @@ func NewTCTrackByFolder(t *db.Track, parent *db.Album) *TrackChild {
 		trCh.Genres = append(trCh.Genres, &GenreRef{Name: g.Name})
 	}
 	for _, a := range t.Artists {
+		if a.Name == t.TagTrackArtist {
+			trCh.ArtistID = a.SID()
+		}
 		trCh.Artists = append(trCh.Artists, &ArtistRef{ID: a.SID(), Name: a.Name})
+	}
+	if len(t.Artists) > 0 {
+		trCh.ArtistID = t.Artists[0].SID()
 	}
 	if t.ReplayGainTrackGain != 0 || t.ReplayGainAlbumGain != 0 {
 		trCh.ReplayGain = &ReplayGain{
