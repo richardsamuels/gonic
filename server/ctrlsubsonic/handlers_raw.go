@@ -231,14 +231,19 @@ func (c *Controller) ServeStreamPrefetchTranscoder(w http.ResponseWriter, r *htt
 		return spec.NewError(0, "transcoder path error: %v", err)
 	}
 
-	if len(path) == 0 {
-		path, err = transcoder.TranscodeToDisk(r.Context(), profile, file.AbsPath())
-		if err != nil {
-			return spec.NewError(0, "transcode failed: %v", err)
-		}
+	if len(path) != 0 {
+		http.ServeFile(w, r, path)
+		return nil
 	}
 
-	http.ServeFile(w, r, path)
+	w.Header().Set("Content-Type", profile.MIME())
+	if err := c.transcoder.Transcode(r.Context(), profile, file.AbsPath(), w); err != nil && !errors.Is(err, transcode.ErrFFmpegKilled) {
+		return spec.NewError(0, "error transcoding: %v", err)
+	}
+
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
 	return nil
 }
 
