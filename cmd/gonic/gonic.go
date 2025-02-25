@@ -96,6 +96,8 @@ func main() {
 	confTranscodeCacheSize := flag.Int("transcode-cache-size", 0, "size of the transcode cache in MB (0 = no limit) (optional)")
 	confTranscodeEjectInterval := flag.Int("transcode-eject-interval", 0, "interval (in minutes) to eject transcode cache (0 = never) (optional)")
 
+	confPrefetchTranscoder := flag.Bool("use-prefetch-transcoder", false, "cache all transcode operations before serving the file")
+
 	flag.Parse()
 	flagconf.ParseEnv()
 	flagconf.ParseConfig(*confConfigPath)
@@ -258,7 +260,7 @@ func main() {
 	if err != nil {
 		log.Panicf("error creating admin controller: %v\n", err)
 	}
-	ctrlSubsonic, err := ctrlsubsonic.New(dbc, scannr, musicPaths, *confPodcastPath, cacheDirAudio, cacheDirCovers, jukebx, playlistStore, scrobblers, podcast, transcoder, lastfmClient, artistInfoCache, albumInfoCache, resolveProxyPath)
+	ctrlSubsonic, err := ctrlsubsonic.New(dbc, scannr, musicPaths, *confPodcastPath, cacheDirAudio, cacheDirCovers, jukebx, playlistStore, scrobblers, podcast, transcoder, lastfmClient, artistInfoCache, albumInfoCache, resolveProxyPath, *confPrefetchTranscoder)
 	if err != nil {
 		log.Panicf("error creating subsonic controller: %v\n", err)
 	}

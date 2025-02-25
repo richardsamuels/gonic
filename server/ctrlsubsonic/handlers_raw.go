@@ -166,6 +166,87 @@ func coverScaleAndSave(reader io.Reader, cachePath string, size int) error {
 	return nil
 }
 
+func (c *Controller) ServeStreamPrefetchTranscoder(w http.ResponseWriter, r *http.Request) *spec.Response {
+	params := r.Context().Value(CtxParams).(params.Params)
+	user := r.Context().Value(CtxUser).(*db.User)
+	id, err := params.GetID("id")
+	if err != nil {
+		return spec.NewError(10, "please provide an `id` parameter")
+	}
+
+	file, err := specidpaths.Locate(c.dbc, id)
+	if err != nil {
+		return spec.NewError(0, "error looking up id %s: %v", id, err)
+	}
+
+	audioFile, ok := file.(db.AudioFile)
+	if !ok {
+		return spec.NewError(0, "type of id does not contain audio")
+	}
+
+	maxBitRate, _ := params.GetInt("maxBitRate")
+	format, _ := params.Get("format")
+	//timeOffset, _ := params.GetInt("timeOffset")
+
+	if format == "raw" {
+		http.ServeFile(w, r, file.AbsPath())
+		return nil
+	}
+
+	client, _ := params.Get("c")
+	pref, err := streamGetTransodePreference(c.dbc, user.ID, client)
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return spec.NewError(0, "couldn't find transcode preference: %v", err)
+	}
+	if pref == nil {
+		if maxBitRate > 0 && maxBitRate < audioFile.AudioBitrate() {
+			return spec.NewError(0, "param maxBitRate requested and no user transcode preferences found for user %q and client %q. please configure transcode settings if you want to transcode", user.Name, client)
+		}
+		log.Printf("serving raw file, no user transcode preferences found for user %q and client %q", user.Name, client)
+		http.ServeFile(w, r, file.AbsPath())
+		return nil
+	}
+
+	if maxBitRate >= audioFile.AudioBitrate() {
+		log.Printf("serving raw file, requested max bitrate %d is greater or equal to %d", maxBitRate, audioFile.AudioBitrate())
+		http.ServeFile(w, r, file.AbsPath())
+		return nil
+	}
+
+	profile, ok := transcode.UserProfiles[pref.Profile]
+	if !ok {
+		return spec.NewError(0, "unknown transcode user profile %q", pref.Profile)
+	}
+	if maxBitRate > 0 && int(profile.BitRate()) > maxBitRate {
+		profile = transcode.WithBitrate(profile, transcode.BitRate(maxBitRate))
+	}
+
+	transcoder, ok := c.transcoder.(*transcode.CachingTranscoder)
+	if !ok {
+		return spec.NewError(0, "internal transcoder unknown")
+	}
+
+	path, err := transcoder.PathForFile(r.Context(), profile, file.AbsPath())
+	if err != nil {
+		return spec.NewError(0, "transcoder path error: %v", err)
+	}
+
+	if len(path) != 0 {
+		http.ServeFile(w, r, path)
+		return nil
+	}
+
+	w.Header().Set("Content-Type", profile.MIME())
+	if err := c.transcoder.Transcode(r.Context(), profile, file.AbsPath(), w); err != nil && !errors.Is(err, transcode.ErrFFmpegKilled) {
+		return spec.NewError(0, "error transcoding: %v", err)
+	}
+
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+	return nil
+}
+
 func (c *Controller) ServeStream(w http.ResponseWriter, r *http.Request) *spec.Response {
 	params := r.Context().Value(CtxParams).(params.Params)
 	user := r.Context().Value(CtxUser).(*db.User)

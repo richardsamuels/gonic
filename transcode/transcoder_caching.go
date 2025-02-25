@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -27,6 +28,59 @@ var _ Transcoder = (*CachingTranscoder)(nil)
 
 func NewCachingTranscoder(t Transcoder, cachePath string, limitMB int) *CachingTranscoder {
 	return &CachingTranscoder{transcoder: t, cachePath: cachePath, limitMB: limitMB}
+}
+
+func (t *CachingTranscoder) PathForFile(ctx context.Context, profile Profile, in string) (string, error) {
+	name, args, err := parseProfile(profile, in)
+	if err != nil {
+		return "", fmt.Errorf("split command: %w", err)
+	}
+
+	key := cacheKey(name, args)
+	path := filepath.Join(t.cachePath, key)
+
+	if i, err := os.Stat(path); err == nil && i.Size() > 0 {
+		_ = os.Chtimes(path, time.Now(), time.Now()) // Touch for LRU cache purposes
+		return path, nil
+	}
+
+	return "", nil
+}
+
+func (t *CachingTranscoder) doTranscode(ctx context.Context, profile Profile, in string, path string, out io.Writer) error {
+	if err := t.transcoder.Transcode(ctx, profile, in, out); err != nil {
+		os.Remove(path)
+		return fmt.Errorf("internal transcode: %w", err)
+	}
+
+	return nil
+}
+
+func (t *CachingTranscoder) TranscodeToDisk(ctx context.Context, profile Profile, in string) (string, error) {
+	name, args, err := parseProfile(profile, in)
+	if err != nil {
+		return "", fmt.Errorf("split command: %w", err)
+	}
+
+	key := cacheKey(name, args)
+	unlock := t.locks.Lock(key)
+	defer unlock()
+	path := filepath.Join(t.cachePath, key)
+
+	cf, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o644)
+	if err != nil {
+		return "", fmt.Errorf("open cache file: %w", err)
+	}
+	defer cf.Close()
+
+	log.Printf("prefetch trancoding to %q with at bitrate %d", profile.MIME(), profile.BitRate())
+	start := time.Now()
+	if err := t.doTranscode(ctx, profile, in, path, cf); err != nil {
+		return "", fmt.Errorf("transcode: %w", err)
+	}
+	total := time.Now().Sub(start)
+	log.Printf("transcode op for '%s' took %f seconds", in, total.Seconds())
+	return path, nil
 }
 
 func (t *CachingTranscoder) Transcode(ctx context.Context, profile Profile, in string, out io.Writer) error {
@@ -65,12 +119,7 @@ func (t *CachingTranscoder) Transcode(ctx context.Context, profile Profile, in s
 	}
 
 	dest := io.MultiWriter(out, cf)
-	if err := t.transcoder.Transcode(ctx, profile, in, dest); err != nil {
-		os.Remove(path)
-		return fmt.Errorf("internal transcode: %w", err)
-	}
-
-	return nil
+	return t.doTranscode(ctx, profile, in, path, dest)
 }
 
 func (t *CachingTranscoder) CacheEject() error {

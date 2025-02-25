@@ -69,7 +69,7 @@ type Controller struct {
 	resolveProxyPath ProxyPathResolver
 }
 
-func New(dbc *db.DB, scannr *scanner.Scanner, musicPaths []MusicPath, podcastsPath string, cacheAudioPath string, cacheCoverPath string, jukebox *jukebox.Jukebox, playlistStore *playlist.Store, scrobblers []scrobble.Scrobbler, podcasts *podcast.Podcasts, transcoder transcode.Transcoder, lastFMClient *lastfm.Client, artistInfoCache *artistinfocache.ArtistInfoCache, albumInfoCache *albuminfocache.AlbumInfoCache, resolveProxyPath ProxyPathResolver) (*Controller, error) {
+func New(dbc *db.DB, scannr *scanner.Scanner, musicPaths []MusicPath, podcastsPath string, cacheAudioPath string, cacheCoverPath string, jukebox *jukebox.Jukebox, playlistStore *playlist.Store, scrobblers []scrobble.Scrobbler, podcasts *podcast.Podcasts, transcoder transcode.Transcoder, lastFMClient *lastfm.Client, artistInfoCache *artistinfocache.ArtistInfoCache, albumInfoCache *albuminfocache.AlbumInfoCache, resolveProxyPath ProxyPathResolver, usePrefetchTranscoder bool) (*Controller, error) {
 	c := Controller{
 		ServeMux: http.NewServeMux(),
 
@@ -130,7 +130,11 @@ func New(dbc *db.DB, scannr *scanner.Scanner, musicPaths []MusicPath, podcastsPa
 
 	// raw
 	c.Handle("/getCoverArt", chainRaw(respRaw(c.ServeGetCoverArt)))
-	c.Handle("/stream", chainRaw(respRaw(c.ServeStream)))
+	if usePrefetchTranscoder {
+		c.Handle("/stream", chainRaw(respRaw(c.ServeStreamPrefetchTranscoder)))
+	} else {
+		c.Handle("/stream", chainRaw(respRaw(c.ServeStream)))
+	}
 	c.Handle("/download", chainRaw(respRaw(c.ServeStream)))
 	c.Handle("/getAvatar", chainRaw(respRaw(c.ServeGetAvatar)))
 

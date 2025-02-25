@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"time"
 )
 
 type FFmpegTranscoder struct{}
@@ -22,6 +23,10 @@ var (
 )
 
 func (*FFmpegTranscoder) Transcode(ctx context.Context, profile Profile, in string, out io.Writer) error {
+	// TODO parameterize
+	ctx, cancel := context.WithDeadline(ctx, time.Now().Add(60*time.Second))
+	defer cancel()
+
 	name, args, err := parseProfile(profile, in)
 	if err != nil {
 		return fmt.Errorf("split command: %w", err)
